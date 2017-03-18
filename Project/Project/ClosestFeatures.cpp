@@ -154,7 +154,7 @@ face *findFace(polyhedron *p, char *name)
 /*
  * Return total number of features in a polyhedron
  */
-int numFeats(polyhedron *p)
+int numFeatures(polyhedron *p)
 {
 	featureNode *feature_node;
 	int n = 0;
@@ -164,4 +164,2014 @@ int numFeats(polyhedron *p)
 	for (feature_node = p->faces; feature_node; feature_node = feature_node->next) n++;
 	
 	return n;
+}
+
+/*
+ * Return the nth feature of a polyhedron.  The features are numbered starting
+ * from 0.  Vertices are first, followed by edges, and then faces.
+ */
+void *nthFeature(polyhedron *p, int n)
+{
+	featureNode *feature_node;
+
+	for (feature_node = p->verts; n > 0 && feature_node; feature_node = feature_node->next) n--;
+	if (feature_node) return feature_node->f.any;
+	for (feature_node = p->edges; n > 0 && feature_node; feature_node = feature_node->next) n--;
+	if (feature_node) return feature_node->f.any;
+	for (feature_node = p->faces; n > 0 && feature_node; feature_node = feature_node->next) n--;
+	return feature_node->f.any;
+}
+
+/*
+ * Return a random feature from polyhedron.  There are equal chances that
+ * a vertex, edge, or face will be returned.  Within each category, all
+ * features have an equal chance of being selected.
+ */
+void *randFeat(polyhedron *p)
+{
+	int type;
+	featureNode *fn, *fn2;
+	int i, n;
+
+	type = randomNumber(3);
+	if (type == 0) fn = p->verts;
+	else if (type == 1) fn = p->edges;
+	else fn = p->faces;
+
+	// Count number of features in the selected list */
+	for (fn2 = fn, n = 0; fn2; n++, fn2 = fn2->next);
+
+	// pick a random feature
+	n = randomNumber(n);
+	for (i = 0; i < n; i++) fn = fn->next;
+	return fn->f.any;
+}
+
+/*
+ * Return radius of a library polyhedron.  The radius of a polyhedron is
+ * the maximum "norm" of a vertex, where the norm of a vertex is the norm
+ * of the position vector from the vertex which is rooted at the origin.
+ */
+float polyhedronRadius(char *name)
+{
+	float norm, radius;
+	featureNode *feature_node;
+	int i;
+
+	for (i = 0; i < polyhedronLibraryCount && strcmp(polyhedronLibrary[i].name, name); i++);
+	{
+		if (i == polyhedronLibraryCount) {
+			printf("***** error:  can't find %s in library\n", name);
+			exit(1);
+		}
+	}
+
+	radius = 0.0;
+	for (feature_node = polyhedronLibrary[i].verts; feature_node; feature_node = feature_node->next) 
+	{
+		norm = length(feature_node->f.v->coords);
+		if (norm > radius) radius = norm;
+	}
+
+	return radius;
+}
+
+/*
+Create a new edge between vertices v1 and v2.  Initialize the edge's
+vertex pointers, and it's unit direction vector and length fields.
+*/
+edge *newEdge(vertex *v1, vertex *v2)
+{
+	edge *e;
+
+	e = allocEdge;
+	e->tag = E;
+
+	if (strcmp(v1->name, v2->name) > 0) SWAP(v1, v2, vertex *);
+	e->v1 = v1;
+	e->v2 = v2;
+
+	addFeature(e, &v1->edges);
+	addFeature(e, &v2->edges);
+
+	e->fl = e->fr = NULL;
+	e->cone = NULL;
+	e->u = v2->coords - v1->coords;
+	e->len = length(e->u);
+	e->u = e->u / e->len;
+	return e;
+}
+
+/*
+ * Read the polyhedron library from the file whose name is passed in.  The
+ * library is stored into the global variable polyhedronLibrary.  The global
+ * variable polyhedronLibraryCount is also initialized.
+ */
+
+int loadPolyhedronLibrary(char *fname)
+{
+	FILE *fp;
+	char s[80];
+	polyhedron *p;
+	vertex *v;
+	face *f;
+	edge *e, *e1, *e2;
+	vertex *start, *last;
+	featureNode *fn;
+	int cont;
+	int nameCounter;
+	int n;
+
+	printf("\nloading polyhedron library:\n");
+	n = 0;
+	fp = fopen(fname, "r");
+
+	while (1) {
+
+		do fscanf(fp, "%s", s); while (!feof(fp) && strcmp(s, "polyhedron"));
+		if (feof(fp)) break;
+
+		p = &polyhedronLibrary[n++];
+		fscanf(fp, "%s", p->name);
+		printf("%s\n", p->name);
+		mat4copy(mat4I, p->pose);
+		p->verts = p->edges = p->faces = NULL;
+
+		// read vertices 
+		while (1) {
+			fscanf(fp, "%s", s);
+			if (s[0] == '*') break;
+			v = allocVertex;
+			v->tag = V;
+			strcpy(v->name, s);
+			v->cone = NULL;
+			if (sizeof v->coords.v[0] == sizeof(double))
+				fscanf(fp, "%lf %lf %lf", &v->coords.v[0], &v->coords.v[1], &v->coords.v[2]);
+			else
+				fscanf(fp, "%f %f %f", &v->coords.v[0], &v->coords.v[1], &v->coords.v[2]);
+			v->edges = NULL;
+			addFeature(v, &p->verts);
+		}
+
+		// read faces 
+		nameCounter = 0;
+		while (1) {
+			fscanf(fp, "%s", s);
+			if (s[0] == '*') break;
+			if (s[0] == '-') sprintf(s, "#F_%d", ++nameCounter);
+			f = allocFace;
+			f->tag = F;
+			strcpy(f->name, s);
+			f->verts = f->edges = NULL;
+			f->cone = NULL;
+			addFeature(f, &p->faces);
+			getWord(fp, s);
+			start = last = findVertex(p, s);
+			do {
+				if (cont = getWord(fp, s)) v = findVertex(p, s);
+				else v = start;
+				addFeature(v, &f->verts);
+				if (e = findEdge(p, last->name, v->name)) {
+					if (e->fl) e->fr = f;
+					else e->fl = f;
+				}
+				else {
+					e = newEdge(last, v);
+					if (strcmp(last->name, v->name) < 0) e->fl = f;
+					else e->fr = f;
+					addFeature(e, &p->edges);
+				}
+				addFeature(e, &f->edges);
+				last = v;
+			} while (cont);
+			// compute face plane coeffs (& outward normal)  
+			e1 = f->edges->f.e;
+			e2 = f->edges->next->f.e;
+			// the "not" below is necessary because we haven't reversed the
+			// vertex list to its proper CCW order yet; right now it's in CW order 
+			
+			vec3 f_plane;
+			if (!(e1->v1 == e2->v2 || e1->v2 == e2->v1))
+				f_plane = cross(e1->u, e2->u);
+			else f_plane = cross(e2->u, e1->u);
+			f_plane = normalise(f_plane);
+			f->plane = vec4(f_plane.v[0], f_plane.v[1], f_plane.v[2], f->plane.v[3]);
+			f->plane.v[3] = -1 * dot(f->plane, f->verts->f.v->coords);
+		}
+
+		// clean up lists 
+		for (fn = p->verts; fn; fn = fn->next) reverseFlist(&fn->f.v->edges);
+		for (fn = p->faces; fn; fn = fn->next) {
+			reverseFlist(&fn->f.f->verts->next);
+			reverseFlist(&fn->f.f->edges);
+		}
+		reverseFlist(&p->verts);
+		reverseFlist(&p->edges);
+		reverseFlist(&p->faces);
+
+		// build the voronoi regions for the polyhedron 
+		buildCones(p);
+
+	}
+
+	fclose(fp);
+	polyhedronLibraryCount = n;
+	printf("%d polyhedra in library\n\n", n);
+	return n;
+
+}
+
+
+/*
+ * Create polyhedron
+ *
+ * Once the polyhedron library has been initialized, we can create instances
+ * of the various polyhedron in the library.  Any number of instances of the
+ * same polyhedron may exist, at different positions (poses) in space.  We
+ * create a polyhedron instance by specifying the name of the reference
+ * polyhedron in the library (e.g. "cube"), and the name for this particular
+ * instance (e.g. "cube-1").  The former name is required; the latter one
+ * is optional, and can be NULL.  A pointer to the newly instantiated polyhedron
+ * is returned.  The pose matrix is initialized to the identity.  Note that
+ * all instances of the same library polyhedron share the same vertex, edge,
+ * and face lists and voronoi structure.
+ */
+polyhedron *createPolyhedron(char *libName, char *name)
+{
+	polyhedron *newP;
+	int i;
+
+	for (i = 0; i < polyhedronLibraryCount &&
+		strcmp(polyhedronLibrary[i].name, libName); i++);
+
+	if (i == polyhedronLibraryCount) 
+	{
+		printf("***** error:  can't find %s in library\n", libName);
+		return NULL;
+	}
+
+	newP = allocPolyhedron;
+	strcpy(newP->name, name);
+
+	mat4copy(mat4I, newP->pose);
+	newP->verts = polyhedronLibrary[i].verts;
+	newP->edges = polyhedronLibrary[i].edges;
+	newP->faces = polyhedronLibrary[i].faces;
+
+	return newP;
+}
+
+
+/*
+ * Print out all the features of a polyhedron
+ */
+void dumpPolyhedron(polyhedron *p)
+{
+	featureNode *fn, *fn2;
+	char s[80];
+
+	printf("polyhedron %s ===================\n", p->name);
+
+	printf("vertices:\n");
+	for (fn = p->verts; fn; fn = fn->next) 
+	{
+		printf("%-10s  (%+6.2f, %+6.2f, %+6.2f)\n", fn->f.v->name,
+			fn->f.v->coords.v[0], fn->f.v->coords.v[1], fn->f.v->coords.v[2]);
+		printf("  edges:");
+		for (fn2 = fn->f.v->edges; fn2; fn2 = fn2->next)
+			printf("  %s.%s", fn2->f.e->v1->name, fn2->f.e->v2->name);
+		printf("\n");
+	}
+
+	printf("edges:\n");
+	for (fn = p->edges; fn; fn = fn->next) 
+	{
+		sprintf(s, "%s.%s", fn->f.e->v1->name, fn->f.e->v2->name);
+		printf("%-15s   l=%-10s r=%-10s\n",
+			s, fn->f.e->fl->name, fn->f.e->fr->name);
+		printf("  l = %+7.2f  u = (%+6.3f, %+6.3f, %+6.3f)\n", fn->f.e->len,
+			fn->f.e->u.v[0], fn->f.e->u.v[1], fn->f.e->u.v[2]);
+	}
+
+	printf("faces:\n");
+	for (fn = p->faces; fn; fn = fn->next) 
+	{
+		printf("%-10s  (%+6.2f, %+6.2f, %+6.2f)  %+6.2f\n", fn->f.f->name,
+			fn->f.f->plane.v[0], fn->f.f->plane.v[1],
+			fn->f.f->plane.v[2], fn->f.f->plane.v[3]);
+		printf("  vertices:");
+		for (fn2 = fn->f.f->verts; fn2; fn2 = fn2->next)
+			printf("  %s", fn2->f.v->name);
+		printf("\n  edges:");
+		for (fn2 = fn->f.f->edges; fn2; fn2 = fn2->next)
+			printf("  %s.%s", fn2->f.e->v1->name, fn2->f.e->v2->name);
+		printf("\n");
+	}
+}
+
+/*
+=============================================================================
+
+Voronoi region routines
+
+These routines are used for building the voronoi region structures
+of polyhedra, and for testing for membership of points in these regions.
+
+The three membership routines are vertexConeCheck, edgeConeCheck, and
+faceConeCheck, for testing membership of points within vertex, edge, and
+face voronoi regions respectively.  Actually, the faceConeCheck only checks
+against the side planes of the face's voronoi region; the base plane
+must be checked explicitly.  "Points" are simply arrays of 3 floats.
+
+All three membership routines are passed the feature whose cone is being
+checked as well as the point.  These routines return true if the point was
+in the cone, and false otherwise.  In the latter case, the feature pointer
+passed in will be updated with a new feature (of a different type) which
+neighboured the old feature, corresponding to the plane which was violated.
+We do not update the feature based on the first plane which is found to
+be violated, but rather on the plane which is "most violated."  The
+amount of violation is measured by the distance of the point from the
+plane, assuming the point is on the negative side of the plane.  A point
+on the positive side does not violated the plane.  Hence, even if we
+find a plane which is violated, we continue to cycle through all planes
+of the cone, looking for the one which is most violated.
+
+The voronoi regions are "sticky" in that we make comparisons against
+-EPSILON rather than zero.  This provides hysteresis to avoid cycling.
+The voronoi planes are oriented so that the "signed distance" of a point
+to a voronoi plane is positive if the point is on the region side of the
+plane, and negative if the point lies outside the region.
+
+N.B.  The order in which the edge cone planes are built is important!
+We add the planes corresponding to vertices (the edge's endpoints) first,
+followed by the planes corresponding to the neighboring faces.  This
+puts the face planes in the front of the edge's cone list.  We depend
+on this order in the edge_face routine when we're checking that the
+faces normal lies between the edge's neigbouring faces' normals.
+
+=============================================================================
+*/
+
+/*
+ * Add a plane node to a cone list.  A cone list is a list of planes describing
+ * the voronoi region of a vertex or an edge, or the side planes of the
+ * voronoi region of a face.
+ */
+void addPlane(planeNode *pn, planeNode **cone)
+{
+	pn->next = *cone;
+	*cone = pn;
+}
+
+/*
+ * Flip plane
+ *
+ * Planes have an orientation, since we perform checks to see if points lie
+ * on the proper side of the plane.  flipPlane negates the four parameters
+ * describing the source plane, to produce a destination plane which is
+ * identical to the source, except with opposite orientation.
+ */
+void flipPlane(vec4 src, vec4 dest)
+{
+	dest.v[0] = -src.v[0];
+	dest.v[1] = -src.v[1];
+	dest.v[2] = -src.v[2];
+	dest.v[3] = -src.v[3];
+
+	// TODO: I think this should return dest
+}
+
+/*
+ * Tweak plane normal
+ *
+ * Rotate a plane normal epsilon radians about a given axis u.  This
+ * should be done before the constant term of the plane vector is
+ * computed, since this term is based on the plane normal.
+ * u must be a unit vector!
+ */
+void tweakPlaneNormal(vec3 u, float epsilon, vec3 nOrig, vec3 nTweak)
+{
+	mat3 R;
+	float cosAngle, sinAngle, v;
+
+	/* compute rotation matrix for rotating 3-vectors an angle eps about u */
+	sinAngle = sin(epsilon);
+	cosAngle = cos(epsilon);
+	v = 1.0 - cosAngle;
+	R.m[0] = u.v[0] * u.v[0] * v + cosAngle;
+	R.m[4] = u.v[1] * u.v[1] * v + cosAngle;
+	R.m[8] = u.v[2] * u.v[2] * v + cosAngle;
+	R.m[1] = u.v[0] * u.v[1] * v - u.v[2] * sinAngle;
+	R.m[2] = u.v[0] * u.v[2] * v + u.v[1] * sinAngle;
+	R.m[3] = u.v[1] * u.v[0] * v + u.v[2] * sinAngle;
+	R.m[5] = u.v[1] * u.v[2] * v - u.v[0] * sinAngle;
+	R.m[6] = u.v[2] * u.v[0] * v - u.v[1] * sinAngle;
+	R.m[7] = u.v[2] * u.v[1] * v + u.v[0] * sinAngle;
+
+	nTweak = mat3vec3(R, nOrig);
+
+	//TODO: I think this should return nTweak
+}
+
+/*
+ * Compute the voronoi region of a vertex.  This creates a list of plane
+ * nodes (one for each incident edge) and points the vertex's cone field
+ * to this list.
+ */
+void computeVertexCone(vertex *v)
+{
+	planeNode *pn;
+	featureNode *fn;
+	edge *e;
+	vec3 u, tmpV;
+
+	for (fn = v->edges; fn; fn = fn->next) 
+	{
+		e = fn->f.e;
+		// Compute vector about which to rotate vertex planes REWRITE
+		// this vector points toward the right of edge
+		tmpV = e->fl->plane + e->fr->plane;
+		u = cross(e->u, tmpV);
+		u = normalise(u); // bug fix:  Moritz Breipohl, 21.10.96
+
+		// Construct vertex plane 
+		pn = allocPnode;
+
+		if (e->v1 == v) 
+		{
+			tweakPlaneNormal(u, VERTEX_FLARE, e->u, pn->plane);
+
+			pn->plane = pn->plane * -1;
+		}
+		else 
+			tweakPlaneNormal(u, -VERTEX_FLARE, e->u, pn->plane);
+		
+		pn->plane.v[3] = -1 * dot(v->coords, pn->plane);
+		pn->nbr = e;
+		addPlane(pn, &v->cone);
+
+		// Construct edge plane
+		pn = allocPnode;
+
+		if (e->v1 == v) 
+			tweakPlaneNormal(u, EDGE_VERTEX_FLARE, e->u, pn->plane);
+		else 
+		{
+			tweakPlaneNormal(u, -EDGE_VERTEX_FLARE, e->u, pn->plane);
+			pn->plane = pn->plane * -1;
+		}
+
+		pn->plane.v[3] = -1 * dot(v->coords, pn->plane);
+		pn->nbr = v;
+		addPlane(pn, &e->cone);
+	}
+}
+
+/*
+ * Compute the voronoi region of a face.  This creates a list of plane
+ * nodes (one for each edge of the face) and points the faces's cone field
+ * to this list.  The final plane of the voronoi region is the plane of
+ * the face itself.  This plane is stored explicitly when the face is
+ * created.
+ */
+void computeFaceCone(face *f)
+{
+	planeNode *pn;
+	edge *e;
+	vertex *v;
+	featureNode *fnE, *fnV;
+	vec3 norm;
+
+	// We only do side planes;
+	// base plane is already stored explicitly in f->plane 
+	for (fnE = f->edges, fnV = f->verts; fnE; fnE = fnE->next, fnV = fnV->next) 
+	{
+		e = fnE->f.e;
+		v = fnV->f.v;
+		// (e->v1 = v) <==> e goes CCW around f; f is left face of e
+		// (e->v2 = v) <==> e goes CW around f; f is right face of e
+
+		// Construct face plane 
+		norm = cross(f->plane, e->u);
+
+		pn = allocPnode;
+		
+		if (e->v1 == v) 
+			tweakPlaneNormal(e->u, FACE_FLARE, norm, pn->plane);
+		else 
+		{
+			tweakPlaneNormal(e->u, -FACE_FLARE, norm, pn->plane);
+			pn->plane = pn->plane * -1;
+		}
+		pn->plane.v[3] = -1 * dot(v->coords, pn->plane);
+		pn->nbr = e;
+		addPlane(pn, &f->cone);
+
+		// Construct edge plane 
+		pn = allocPnode;
+		if (e->v1 == v) 
+		{
+			tweakPlaneNormal(e->u, EDGE_FACE_FLARE, norm, pn->plane);
+			pn->plane = pn->plane * -1;
+		}
+		else 
+			tweakPlaneNormal(e->u, -EDGE_FACE_FLARE, norm, pn->plane);
+
+		pn->plane.v[3] = -1 * dot(v->coords, pn->plane);
+		pn->nbr = f;
+		addPlane(pn, &e->cone);
+	}
+}
+
+/*
+ * Build the voronoi region structure for an entire polyhedron
+*/
+void buildCones(polyhedron *p)
+{
+	featureNode *fn;
+
+	for (fn = p->verts; fn; fn = fn->next) 
+		computeVertexCone(fn->f.v);
+	for (fn = p->faces; fn; fn = fn->next) 
+		computeFaceCone(fn->f.f);
+}
+
+/*
+ * Print out the voronoi region structure for an entire polyhedron
+ */
+void dumpCones(polyhedron *p)
+{
+	featureNode *fn;
+	planeNode *pn;
+
+	printf("cone structure of polyhedron %s ===============\n", p->name);
+
+	for (fn = p->verts; fn; fn = fn->next) 
+	{
+		printf("*** vertex %s\n", fn->f.v->name);
+		for (pn = fn->f.v->cone; pn; pn = pn->next)
+			printf("%+7.3f %+7.3f %+7.3f %+7.3f => %s.%s\n",
+				pn->plane.v[0], pn->plane.v[1], pn->plane.v[2], pn->plane.v[3],
+				((edge *)pn->nbr)->v1->name,
+				((edge *)pn->nbr)->v2->name);
+	}
+
+	for (fn = p->edges; fn; fn = fn->next) 
+	{
+		printf("*** edge %s.%s\n", fn->f.e->v1->name, fn->f.e->v2->name);
+		for (pn = fn->f.e->cone; pn; pn = pn->next)
+			printf("%+7.3f %+7.3f %+7.3f %+7.3f => %s\n",
+				pn->plane.v[0], pn->plane.v[1], pn->plane.v[2], pn->plane.v[3],
+				(featureTag(pn->nbr) == V) ?
+				((VERTEX *)pn->nbr)->name : ((FACE *)pn->nbr)->name);
+	}
+
+	for (fn = p->faces; fn; fn = fn->next) 
+	{
+		printf("*** face %s\n", fn->f.f->name);
+		for (pn = fn->f.f->cone; pn; pn = pn->next) 
+		{
+			printf("%+7.3f %+7.3f %+7.3f %+7.3f => ",
+				pn->plane.v[0], pn->plane.v[1], pn->plane.v[2], pn->plane.v[3]);
+			if (pn->nbr) printf("%s.%s\n",
+				((edge *)pn->nbr)->v1->name,
+				((edge *)pn->nbr)->v2->name);
+			else printf("----\n");
+		}
+	}
+}
+
+/*
+ * Return true if a point lies within vertex v's voronoi region, else false.
+ * if update is true, update v to a neighboring edge in the latter case.
+ */
+int vertexConeCheck(vertex **v, vec3 point, int update)
+{
+	planeNode *pn;
+	float min, dot;
+	void *feature;
+
+	min = INFINITY;
+
+	for (pn = (*v)->cone; pn; pn = pn->next)
+	{
+		if ((dot = planeDist(pn->plane, point)) < min) 
+		{
+			min = dot;
+			feature = pn->nbr;
+		}
+	}
+
+	if (min > -CONE_EPS) return 1;
+	// TODO: Check if this is correct
+	if (update) *v = (vertex *)feature;
+	return 0;
+}
+
+/*
+ * Return true if a point lies within edge e's voronoi region, else false.
+ * if update is true, update e to a neighboring vertex or face in the latter
+ * case.
+ */
+int edgeConeCheck(edge **e, vec3 point, int update)
+{
+	planeNode *pn;
+	float min, dot;
+	void *feature;
+
+	min = INFINITY;
+	for (pn = (*e)->cone; pn; pn = pn->next)
+	{
+		if ((dot = planeDist(pn->plane, point)) < min) 
+		{
+			min = dot;
+			feature = pn->nbr;
+		}
+	}
+	if (min >= -CONE_EPS) return 1;
+	// TODO: Check if this is correct
+	if (update) *e = (edge *)feature;
+	return 0;
+}
+
+/*
+ * Return true if a point lies within face f's voronoi region, else false.
+ * If update is true, update f to a neighboring edge in the latter case.
+ */
+int faceConeCheck(face **f, vec3 point, int update)
+{
+	planeNode *pn;
+	float min, dot;
+	void *feature;
+
+	min = INFINITY;
+	for (pn = (*f)->cone; pn; pn = pn->next)
+	{
+		if ((dot = planeDist(pn->plane, point)) < min) 
+		{
+			min = dot;
+			feature = pn->nbr;
+		}
+	}
+
+	if (min >= -CONE_EPS) return 1;
+	if (update) *f = (face *)feature;
+	return 0;
+}
+
+/*
+=============================================================================
+
+Quick and dirty distance functions and closestToX functions
+
+Occasionally it is necessary to find the closest feature on polyhedron A
+to a particular feature on polyhedron B.  We sometimes have to enumerate
+over all features on A.  This happens, for instance, when a vertex
+on B lies in the "negative voronoi region" of a face on A.
+
+To perform such operations, we use quick and dirty distance functions.
+These are seven functions which return the distance between two pairs
+of features of a given type.  They are quick and dirty because they
+sometimes return infinity rather than an actual distance.  For instance,
+the distance between two faces is not even calculated unless the faces
+are parallel, for if they are not, we know some some other feature
+pair (possibly involving one of the faces) is closer.  Thus Dff returns
+infinity if the faces aren't parallel.
+
+These functions are named "Dxy" where x and y are either "v", "e", or
+"f", for vertex, edge or face.  Thus, Dev returns the distance between
+an edge and a vertex. We use these routines when searching over polyhedron
+A for the closest feature to a particular feature on B.  For this reason,
+it is most efficient to transform the feature on B to polyhedron A's
+frame, rather than transforming every feature on A to B's frame.  In
+most of these routines, it is thus assumed that the second feature passed
+in (from polyhedron B) has already been transformed to the frame of the
+first feature's polyhedron (polyhedron A).  An exception is Dff (see below).
+
+The quick and dirty distance functions are called by the three closestToX
+functions:  closestToVert, closestToEdge, and closestToFace.  ClosestToVert
+finds the closest feature on A to a vertex on B by first transforming
+the vertex on B into A's frame, and making repeated calls to Dvv, Dev, and
+Dfv.  Likewise, closestToEdge finds the closest feature on A to an edge
+on B by transforming the edge to A's frame and calling Dve, Dee, Dfe while
+enumerating over all features of A.  closestToFace works a little
+differently, since it is more difficult to transform an entire face into
+another frame.  It still enumerates over all features on A, looking for
+the closest feature to a face on B, however if the current feature being
+examined on A is a vertex or edge, this feature is transformed into B's
+frame (rather than transforming the face on B into A's frame).  Hence,
+we still make calls to Dfv and Dfe (Dvf and Def don't exist).  If the
+current feature on A is a face, we call Dff, which assumes each face is
+in its own frame.  This slight inefficiency in the closestToFace case is
+no big deal, due to the rarity of calling this function.
+
+Also note in the closestToX functions, we first enumerate over faces, then
+edges, then vertices.  This gives priority to features of higher dimension,
+which is what we want.  For example, if a face and an edge on A are both
+closest to the fixed feature on B, we'll return the face.
+
+=============================================================================
+*/
+
+/*
+ * Return distance between two vertices; the latter has been transformed
+ * into the frame of the former.
+ */
+float Dvv(vertex *v1, vertex *v2)
+{
+	vec3 offset;
+	offset = v1->coords - v2->coords;
+	return length(offset);
+}
+
+/*
+ * Return distance between an edge and a vertex transformed into the edge's frame.
+ */
+float Dev(edge *e, vertex *v)
+{
+	vec3 w, offset;
+	float lambda;
+
+	w = v->xcoords - e->v1->coords;
+	lambda = dot(w, e->u);
+	if (lambda < 0.0) 
+		lambda = 0.0;
+	else if (lambda > e->len) 
+		lambda = e->len;
+
+	w = displacePoint(e->v1->coords, e->u, lambda);
+	offset = v->xcoords - w;
+
+	return length(offset);
+}
+
+
+/*
+ * Return distance between a face and a vertex transformed into the face's frame,
+ * or possibly infinity.
+ */
+float Dfv(face *f, vertex *v)
+{
+	float dist;
+	planeNode *pn;
+
+	for (pn = f->cone; pn; pn = pn->next)
+	{
+		if (planeDist(pn->plane, v->xcoords) < 0.0) return INFINITY;
+	}
+
+	dist = planeDist(f->plane, v->xcoords);
+	if (dist < 0.0) return INFINITY;
+	return dist;
+}
+
+
+/*
+ * Return distance between a vertex and an edge transformed into the vertex's frame.
+ */
+float Dve(vertex *v, edge *e)
+{
+	vec3 w, offset;
+	float lambda;
+
+	w = v->coords - e->v1->xcoords;
+	lambda = dot(w, e->xu);
+	if (lambda < 0.0) 
+		lambda = 0.0;
+	else if (lambda > e->len) 
+		lambda = e->len;
+	w = displacePoint(e->v1->xcoords, e->xu, lambda);
+	offset = v->coords - w;
+
+	return length(offset);
+}
+
+
+/*
+ * Return distance between two edges; the latter has been transformed into
+ * the frame of the former.
+ */
+
+float Dee(edge *e1, edge *e2)
+{
+	vec3 cp1, cp2, offset;
+
+	edgeCPs(&e2, &e1, cp2, cp1);
+	offset = cp2 - cp1;
+
+	return length(offset);
+}
+
+
+/*
+ * Return distance between a face and an edge transformed into the face's frame,
+ * or possibly infinity.
+ */
+float Dfe(face *f, edge *e)
+{
+	float h1, h2;
+	float min, max;
+	vec3 minCut, maxCut;
+
+	if (!polygonCut(f, e, &min, &max)) return INFINITY;
+	minCut = displacePoint(e->v1->xcoords, e->xu, min);
+	maxCut = displacePoint(e->v1->xcoords, e->xu, max);
+
+	h1 = planeDist(f->plane, minCut);
+	h2 = planeDist(f->plane, maxCut);
+
+	if (h1 < 0.0 || h2 < 0.0) return INFINITY;
+	return (h1 < h2) ? h1 : h2;
+}
+
+
+/*
+ * Return distance between two faces, or possibly infinity.  The faces are
+ * each assumed to be in their own frames, and T12 and T21 are the
+ * transformation matrices from f1's frame to f2's frame and vice-versa, resp.
+
+ * If the faces are parallel, then we return the distance of a vertex on
+ * one face to the plane of the other.  However, we do this computation both
+ * ways and take the minimum distance.  For the vertex of a huge face might
+ * appear to be quite far off the plane of a tiny one due to limited precision.
+ */
+float Dff(face *f1, face *f2, mat4 T12, mat4 T21)
+{
+	float k;
+	float minDist, dist;
+	vec3 w;
+	featureNode *fn;
+	edge *e;
+
+	w = T21 * f2->plane;
+	k = dot(f1->plane, w);
+	if (fabs(k) < 1.0 - EPSILON) return INFINITY;
+
+	// At this point we know faces are ||
+
+	minDist = INFINITY;
+
+	// Find closest edge on f1 to f2
+	for (fn = f1->edges; fn; fn = fn->next) {
+		e = fn->f.e;
+		xformEdge(T12, e);
+		dist = Dfe(f2, e);
+		if (dist < minDist) minDist = dist;
+	}
+
+	// now test edges of f2 against f1
+	for (fn = f2->edges; fn; fn = fn->next) {
+		e = fn->f.e;
+		xformEdge(T21, e);
+		dist = Dfe(f1, e);
+		if (dist < minDist)  minDist = dist;
+	}
+
+	return minDist;
+}
+
+/*
+ * Return closest feature on polyhedron p to the vertex v.  Tvp is the
+ * transformation matrix from v's frame to p's frame.
+ */
+void *closestToVertex(vertex *v, polyhedron *p, mat4 Tvp)
+{
+	float dist, minDist;
+	void *feature;
+	featureNode *fn;
+
+	// xform vertex to frame of polyhedron p
+	xformVertex(Tvp, v);
+	minDist = INFINITY;
+
+	for (fn = p->faces; fn; fn = fn->next) 
+	{
+		dist = Dfv(fn->f.f, v);
+		if (dist < minDist) 
+		{
+			minDist = dist;
+			feature = fn->f.f;
+		}
+	}
+	for (fn = p->edges; fn; fn = fn->next) 
+	{
+		dist = Dev(fn->f.e, v);
+		if (dist < minDist) 
+		{
+			minDist = dist;
+			feature = fn->f.e;
+		}
+	}
+	for (fn = p->verts; fn; fn = fn->next)
+	{
+		dist = Dvv(fn->f.v, v);
+		if (dist < minDist)
+		{
+			minDist = dist;
+			feature = fn->f.v;
+		}
+	}
+	return feature;
+}
+
+
+/*
+ * Return closest feature on polyhedron p to the edge e.  Tep is the
+ * transformation matrix from e's frame to p's frame. 
+ */
+void *closestToEdge(edge *e, polyhedron *p, mat4 Tep)
+{
+	float dist, minDist;
+	void *feature;
+	FNODE *fn;
+
+	// transform edge to frame of polyhedron p
+	xformEdge(Tep, e);
+	minDist = INFINITY;
+
+	for (fn = p->faces; fn; fn = fn->next) 
+	{
+		dist = Dfe(fn->f.f, e);
+		if (dist < minDist) 
+		{
+			minDist = dist;
+			feature = fn->f.f;
+		}
+	}
+	for (fn = p->edges; fn; fn = fn->next) 
+	{
+		dist = Dee(fn->f.e, e);
+		if (dist < minDist) 
+		{
+			minDist = dist;
+			feature = fn->f.e;
+		}
+	}
+	for (fn = p->verts; fn; fn = fn->next) 
+	{
+		dist = Dve(fn->f.v, e);
+		if (dist < minDist) 
+		{
+			minDist = dist;
+			feature = fn->f.v;
+		}
+	}
+	return feature;
+}
+
+
+/*
+ * Return closest feature on polyhedron p to the face f.  Tfp is the
+ * xformation matrix from f's frame to p's frame, and Tpf is the
+ * inverse transformation.
+ */
+void *closestToFace(face *f, polyhedron *p, mat4 Tfp, mat4 Tpf)
+{
+	float dist, minDist;
+	void *feature;
+	featureNode *fn;
+
+	minDist = INFINITY;
+
+	for (fn = p->faces; fn; fn = fn->next) 
+	{
+		dist = Dff(fn->f.f, f, Tpf, Tfp);
+		if (dist < minDist) 
+		{
+			minDist = dist;
+			feature = fn->f.f;
+		}
+	}
+	for (fn = p->edges; fn; fn = fn->next) 
+	{
+		xformEdge(Tpf, fn->f.e);
+		dist = Dfe(f, fn->f.e);
+		if (dist < minDist) 
+		{
+			minDist = dist;
+			feature = fn->f.e;
+		}
+	}
+	for (fn = p->verts; fn; fn = fn->next) 
+	{
+		xformVertex(Tpf, fn->f.v);
+		dist = Dfv(f, fn->f.v);
+		if (dist < minDist) 
+		{
+			minDist = dist;
+			feature = fn->f.v;
+		}
+	}
+	return feature;
+}
+
+/*
+=============================================================================
+
+Miscellaneous distance support functions
+
+These functions are called by the six basic feature pair checks (i.e.
+vertex_vertex, vertex_edge, etc.)  They perform functions such as
+computing the closest edge on a face to a given edge, or determining
+if two faces overlap.
+
+=============================================================================
+*/
+
+/*
+ * Compute edge closest points
+ *
+ * This routine computes closest points between edges e1 and e2, returning
+ * them in cp1 and cp2.  All possible degenerecies are handled (I think).
+ * In cases where the closest points are not unique (this can sometimes
+ * happen with parallel edges), individual closest points are still
+ * selected.  In these cases, we try to choose sensibly, for instance
+ * choosing the midpoint of the portion of the edge which is closest to
+ * the other edge.  We assume e1 has been transformed into e2's frame,
+ * and both cp1 and cp2 are computed relative to e2's frame.
+ */
+void edgeCPs(edge **e1, edge **e2, vec3 cp1, vec3 cp2) // TODO: Make cp1, cp2 pointers
+{
+	float k, lambda, lambda1, lambda2;
+	vec3 offset, w, y;
+	float dot12, dot21;
+	float h, t;
+	float dist, minDist;
+
+	k = dot((*e1)->xu, (*e2)->u);
+	offset = (*e2)->v1->coords - (*e1)->v1->xcoords;
+
+	if (fabs(k) > 1.0 - EPSILON) 
+	{
+		// Case I:  lines || or anti-|| 
+		k = (k > 0.0) ? 1.0 : -1.0;
+		lambda1 = lambda2 = INFINITY;
+		w = (*e1)->v1->xcoords - (*e2)->v1->coords;
+		dot12 = dot(w, (*e2)->u);
+		dot21 = -1 * dot(w, (*e1)->xu);
+
+		t = dot12;
+		h = dot12 + k * (*e1)->len;
+
+		if (t <= 0.0) 
+		{
+			if (h <= 0.0) lambda2 = 0.0;
+			else if (h >= (*e2)->len) lambda2 = (*e2)->len / 2;
+		}
+		else if (t >= (*e2)->len) 
+		{
+			if (h <= 0.0) lambda2 = (*e2)->len / 2;
+			else if (h >= (*e2)->len) lambda2 = (*e2)->len;
+		}
+
+		t = dot21;
+		h = dot21 + k * (*e2)->len;
+
+		if (t <= 0.0) 
+		{
+			if (h <= 0.0) lambda1 = 0.0;
+			else if (h >= (*e1)->len) lambda1 = (*e1)->len / 2;
+		}
+		else if (t >= (*e1)->len) 
+		{
+			if (h <= 0.0) lambda1 = (*e1)->len / 2;
+			else if (h >= (*e1)->len) lambda1 = (*e1)->len;
+		}
+
+		if (lambda1 != (float)INFINITY && lambda2 == (float)INFINITY)
+			lambda2 = dot12 + k * lambda1;
+		else if (lambda2 != (float)INFINITY && lambda1 == (float)INFINITY)
+			lambda1 = dot21 + k * lambda2;
+		else if (lambda1 == (float)INFINITY) 
+		{  
+			// N.B. lambda2 also == INFINITY
+			if (t < 0.0) lambda1 = h / 2;
+			else if (t >(*e1)->len) lambda1 = (h + (*e1)->len) / 2;
+			else if (h < 0.0) lambda1 = t / 2;
+			else lambda1 = (t + (*e1)->len) / 2;
+			lambda2 = dot12 + k * lambda1;
+		}
+
+		// Compute cps based on lambdas
+
+		if (lambda1 <= 0.0) cp1 = (*e1)->v1->xcoords;
+		else if (lambda1 >= (*e1)->len) cp1 = (*e1)->v2->xcoords;
+		else cp1 = displacePoint((*e1)->v1->xcoords, (*e1)->xu, lambda1);
+
+		if (lambda2 <= 0.0) cp2 = (*e2)->v1->coords;
+		else if (lambda2 >= (*e2)->len) cp2 = (*e2)->v2->coords;
+		else cp2 = displacePoint((*e2)->v1->coords, (*e2)->u, lambda2);
+	}
+	else 
+	{
+		// Case II:  lines not || 
+		w = (*e2)->u * k;
+		w = (*e1)->xu - w;
+		lambda1 = dot(w, offset) / (1 - k * k);
+		w = (*e1)->xu * k;
+		w = (*e2)->u - w;
+		lambda2 = -1 * dot(w, offset) / (1 - k * k);
+
+		if (lambda1 >= 0.0 && lambda1 <= (*e1)->len &&
+			lambda2 >= 0.0 && lambda2 <= (*e2)->len) 
+		{
+			cp1 = displacePoint((*e1)->v1->xcoords, (*e1)->xu, lambda1);
+			cp2 = displacePoint((*e2)->v1->coords, (*e2)->u, lambda2);
+			return;
+		}
+
+		// (lambda1, lambda2) not in allowable region; check boundaries 
+
+		minDist = INFINITY;
+		if (lambda1 < 0.0) 
+		{
+			// Check boundary:  lambda1 = 0 
+			w = (*e1)->v1->xcoords - (*e2)->v1->coords;
+			lambda = dot(w, (*e2)->u);
+			if (lambda < 0.0) lambda = 0.0;
+			else if (lambda >(*e2)->len) lambda = (*e2)->len;
+			w = displacePoint((*e2)->v1->coords, (*e2)->u, lambda);
+			y = (*e1)->v1->xcoords - w;
+			dist = length(y);
+			if (dist < minDist) 
+			{
+				minDist = dist;
+				cp1 = (*e1)->v1->xcoords;
+				cp2 = w;
+			}
+		}
+		else if (lambda1 > (*e1)->len) 
+		{
+			// Check boundary:  lambda1 = length1 
+			w = (*e1)->v2->xcoords - (*e2)->v1->coords;
+			lambda = dot(w, (*e2)->u);
+			if (lambda < 0.0) lambda = 0.0;
+			else if (lambda >(*e2)->len) lambda = (*e2)->len;
+			w = displacePoint((*e2)->v1->coords, (*e2)->u, lambda);
+			y = (*e1)->v2->xcoords - w;
+			dist = length(y);
+			if (dist < minDist) {
+				minDist = dist;
+				cp1 = (*e1)->v2->xcoords;
+				cp2 = w;
+			}
+		}
+
+		if (lambda2 < 0.0) {
+			/* check boundary:  lambda2 = 0 */
+			w = (*e2)->v1->coords - (*e1)->v1->xcoords;
+			lambda = dot(w, (*e1)->xu);
+			if (lambda < 0.0) lambda = 0.0;
+			else if (lambda >(*e1)->len) lambda = (*e1)->len;
+			w = displacePoint((*e1)->v1->xcoords, (*e1)->xu, lambda);
+			y = (*e2)->v1->coords - w;
+			dist = length(y);
+			if (dist < minDist) {
+				minDist = dist;
+				cp2 = (*e2)->v1->coords;
+				cp1 = w;
+			}
+		}
+		else if (lambda2 >(*e2)->len) {
+			/* check boundary:  lambda2 = length2 */
+			w = (*e2)->v2->coords - (*e1)->v1->xcoords;
+			lambda = dot(w, (*e1)->xu);
+			if (lambda < 0.0) lambda = 0.0;
+			else if (lambda >(*e1)->len) lambda = (*e1)->len;
+			w = displacePoint((*e1)->v1->xcoords, (*e1)->xu, lambda);
+			y = (*e2)->v2->coords - w;
+			dist = length(y);
+			if (dist < minDist) 
+			{
+				minDist = dist;
+				cp2 = (*e2)->v2->coords;
+				cp1 = w;
+			}
+		}
+	}
+}
+
+/*
+ * Closest edge or vertex on face
+ *
+ * Return the edge or vertex of face f which is closest to edge e.
+ * We assume e has been transformed to f's frame.
+ */
+void *closestEdgeOrVertexOnFace(face *f, edge *e)
+{
+	featureNode *fn;
+	float dist, minDist;
+	edge *e2, *closest;
+	vec3 cp1, cp2, tmp;
+
+	minDist = INFINITY;
+	for (fn = f->edges; fn; fn = fn->next) 
+	{
+		e2 = fn->f.e;
+		edgeCPs(&e, &e2, cp1, cp2);
+		tmp = cp2 - cp1;
+		dist = length(tmp);
+		if (dist < minDist) 
+		{
+			minDist = dist;
+			if (vec3equal(cp2, e2->v1->coords)) closest = (edge *)e2->v1;
+			else if (vec3equal(cp2, e2->v2->coords)) closest = (edge *)e2->v2;
+			else closest = e2;
+		}
+	}
+	return closest;
+}
+
+/*
+ * Find the closest pair of edges between faces f1 and f2; return them
+ * in closest1 & closest2.  T12 is the transformation matrix from f1's
+ * frame to f2's frame.  This is just a dumb n^2 algorithm which loops
+ * through all pairs of edges.
+
+ * A minor complication is that we favor edge pairs for which the closest
+ * points aren't endpoints of the edge.  So in addition to computing the
+ * distance between two edges, we compute the "subdistance," an integer
+ * 0-2 which indicates how many of the closest points between the edge
+ * pair are endpoints.  When looking for the closest pair, we first
+ * check the distance of a pair to the minimum distance found thus far.  If
+ * these distances are close, we check the subdistances.
+ */
+
+void closestEdges(face *f1, face *f2, mat4 T12, edge **closest1, edge **closest2)
+{
+	featureNode *fn1, *fn2;
+	float dist, minDist;
+	int subDist, minSubDist;
+	edge *e1, *e2;
+	vec3 cp1, cp2, tmp;
+
+	minDist = INFINITY;
+	for (fn1 = f1->edges; fn1; fn1 = fn1->next) 
+	{
+		e1 = fn1->f.e;
+		xformEdge(T12, e1);
+		for (fn2 = f2->edges; fn2; fn2 = fn2->next) 
+		{
+			e2 = fn2->f.e;
+			edgeCPs(&e1, &e2, cp1, cp2);
+			tmp = cp2 - cp1;
+			dist = length(tmp);
+			// Adjustment to favor edges for which closest points aren't endpoints
+			subDist = (vec3equal(cp1, e1->v1->xcoords) || vec3equal(cp1, e1->v2->xcoords)) ? 1 : 0;
+
+			if (vec3equal(cp2, e2->v1->coords) || vec3equal(cp2, e2->v2->coords))
+				subDist++;
+			if ((dist < minDist) || (dist < minDist + EPSILON && subDist < minSubDist)) 
+			{
+				minDist = dist;
+				minSubDist = subDist;
+				*closest1 = e1;
+				*closest2 = e2;
+			}
+		}
+	}
+}
+
+/*
+ * Scan over the edges and vertices of face 2, and return the one which
+ * is closest to the plane of f1.  T12 & T21 are the usual transformation
+ * matrices.  Edges are favored over vertices when they are parallel to
+ * the face.
+ */
+void *closestToFacePlane(face *f1, face *f2, mat4 T12, mat4 T21)
+{
+	FNODE *fn;
+	edge *e;
+	float dist, minDist, dist1, dist2;
+	void *feature, *closest;
+	vec3 norm;
+
+	minDist = INFINITY;
+	xformVector(T12, f1->plane, norm);
+	for (fn = f2->edges; fn; fn = fn->next) 
+	{
+		e = fn->f.e;
+
+		xformVertex(T21, e->v1);
+		dist1 = fabs(planeDist(f1->plane, e->v1->xcoords));
+		xformVertex(T21, e->v2);
+		dist2 = fabs(planeDist(f1->plane, e->v2->xcoords));
+		if (dist1 < dist2 - EPSILON) 
+		{
+			// v1 is closer 
+			dist = dist1;
+			feature = e->v1;
+		}
+		else if (dist2 < dist1 - EPSILON) 
+		{
+			// v2 is closer 
+			dist = dist2;
+			feature = e->v2;
+		}
+		else 
+		{
+			// Edge is parallel to face 
+			dist = (dist1 < dist2) ? dist1 : dist2;
+			feature = e;
+		}
+
+		if ((dist < minDist) ||	(dist < minDist + EPSILON &&
+			featureTag(closest) == V && featureTag(feature) == E)) 
+		{
+			minDist = dist;
+			closest = feature;
+		}
+	}
+	return closest;
+}
+
+/*
+ * Determine if edge e intersects face f's cone.  Return true if it
+ * does, else false.  If true, min and max are parameter values which
+ * bound the segment of e contained in the cone.  Note that
+ * 0 <= min < max <= length(e).  We assume e has been transformed to
+ * f's frame.
+ */
+int polygonCut(face *f, edge *e, float *min, float *max)
+{
+	planeNode *pn;
+	float lambda;
+	float denom;
+
+	*min = 0.0;
+	*max = e->len;
+
+	for (pn = f->cone; pn; pn = pn->next) 
+	{
+		denom = dot(e->xu, pn->plane);
+		if (denom > 0.0) 
+		{
+			lambda = -planeDist(pn->plane, e->v1->xcoords) / denom;
+			if (lambda > *min) 
+			{
+				*min = lambda;
+				if (*min > *max) return 0;
+			}
+		}
+		else if (denom < 0.0) 
+		{
+			lambda = -planeDist(pn->plane, e->v1->xcoords) / denom;
+			if (lambda < *max) 
+			{
+				*max = lambda;
+				if (*max < *min) return 0;
+			}
+		}
+		else
+		{ 
+			// denom = 0.0 ; lines are parallel
+			if (planeDist(pn->plane, e->v1->xcoords) < 0.0) return 0;
+		}
+	}
+	return 1;
+}
+
+/*
+ * Return true if faces overlap, else false.  This is only called with
+ * pairs of parallel faces, and by "overlap" we mean the projection of
+ * one face onto the plane of the other overlaps the other face.
+ *
+ * We return true iff:
+ * some edge of f1 intersects the cone of f2, OR
+ * an abritrarily chosen vertex of f2 lies in the cone of f1
+ */
+int faceOverlap(face *f1, face *f2, mat4 T12, mat4 T21)
+{
+	featureNode *fn;
+	float min, max;
+
+	for (fn = f1->edges; fn; fn = fn->next) 
+	{
+		xformEdge(T12, fn->f.e);
+		if (polygonCut(f2, fn->f.e, &min, &max)) return 1;
+	}
+
+	// No dice - maybe f2 lies completely within f1 
+	xformVertex(T21, f2->verts->f.v);
+	return faceConeCheck(&f1, f2->verts->f.v->xcoords, 0);
+}
+
+/*
+=============================================================================
+
+feature pair checks and closest feature routine
+
+The six feature pair check routines test if a given pair of features
+is the closest pair of features between two polyhedra.  Each one handles
+a different combination of feature types.  The six routines are:
+vertex_vertex, vertex_edge, vertex_face, edge_edge, edge_face, and face_face.
+Each of these routines takes as parameters the two features as well as
+two transformation matrices for transforming features from one frame to
+the other and vice versa.  T12 is always the transformation matrix from
+the frame of the first feature in the parameter list to the frame of
+the second feature in the parameter list; T21 is the inverse transformation.
+The check routines which involve faces also take pointer(s) to the
+polyhedron(a) of the face(s), since it is necessary to scan over the entire
+polyhedron when a face's base plane is violated by a feature from the other
+polyhedron.
+
+If pair of features passed into a check routine is indeed a closest
+feature pair, the distance between these features is returned.  If the
+features are not a closest feature pair, -INFINITY is returned, and
+one or possibly both of the closest features are updated to form a
+new pair which is guaranteed to be closer than the previous pair.
+
+The routine closestFeatures is the main loop of the distance algorithm.
+It iteratively "walks" around both polyhedra, calling the appropriate
+feature pair check routines, until it finds the closest pair of features.
+It then returns this pair.
+
+=============================================================================
+*/
+
+/*
+ * check if two vertices are a closest feature pair
+ */
+float vertex_vertex(vertex **v1, vertex **v2, mat4 T12, mat4 T21)
+{
+	vec3 offset;
+
+	// Check if v1 lies in v2's cone
+	xformVertex(T12, *v1);
+	if (!vertexConeCheck(v2, (*v1)->xcoords, 1)) return -INFINITY;
+
+	// Check if v2 lies in v1's cone 
+	xformVertex(T21, *v2);
+	if (!vertexConeCheck(v1, (*v2)->xcoords, 1)) return -INFINITY;
+
+	offset = (*v1)->coords - (*v2)->xcoords;
+	return length(offset);
+}
+
+/*
+ * Check if a vertex and an edge are a closest feature pair
+ */
+float vertex_edge(vertex **v, edge **e, mat4 T12, mat4 T21)
+{
+	vec3 tmp, tmp2, offset;
+	float lambda;
+
+	// check if v lies in e's cone
+	xformVertex(T12, *v);
+	if (!edgeConeCheck(e, (*v)->xcoords, 1)) return -INFINITY;;
+
+	// Compute closest point on e to v
+	tmp = (*v)->xcoords - (*e)->v1->coords;
+	lambda = dot(tmp, (*e)->u);
+	if (lambda < 0.0) lambda = 0.0;
+	else if (lambda >(*e)->len) lambda = (*e)->len;
+	tmp = displacePoint((*e)->v1->coords, (*e)->u, lambda);
+
+	// Check if closest point on e lies in v's cone
+	xformPoint(T21, tmp, tmp2);
+	if (!vertexConeCheck(v, tmp2, 1)) return -INFINITY;
+	offset = (*v)->coords - tmp2;
+	return length(offset);
+}
+
+/*
+ * Check if two edges are a closest feature pair
+ */
+float edge_edge(edge **e1, edge **e2, mat4 T12, mat4 T21)
+{
+	vec3 cp1, cp2, offset, xformed;
+
+	xformEdge(T12, *e1);
+	edgeCPs(e1, e2, cp1, cp2);
+
+	// Check if closest point on e1 lies in e2's cone
+	if (!edgeConeCheck(e2, cp1, 1)) return -INFINITY;
+
+	// Check if closest point on e2 lies in e1's cone 
+	xformPoint(T21, cp2, xformed);
+	if (!edgeConeCheck(e1, xformed, 1)) return -INFINITY;
+
+	offset = cp1 - cp2;
+	return length(offset);
+}
+
+/*
+ * Check if a vertex and a face are a closest feature pair
+ */
+float vertex_face(vertex **v, face **f, mat4 T12, mat4 T21, polyhedron *facePoly)
+{
+	vec3 tmp, tmp2;
+	float dist;
+
+	// check if v lies in f's cone
+	xformVertex(T12, *v);
+	if (!faceConeCheck(f, (*v)->xcoords, 1)) return -INFINITY;
+	dist = planeDist((*f)->plane, (*v)->xcoords);
+	if (dist < 0.0) 
+	{
+		*f = (face *)closestToVertex(*v, facePoly, T12);
+		return -INFINITY;
+	}
+
+	// 	Compute closest point on f to v, i.e. proj. of v in f's plane.
+	// At this point, we know the projected point lies within f
+	tmp = (*f)->plane * dist;
+	tmp = (*v)->xcoords - tmp;
+
+	// check if closest point on f lies in v's cone
+	xformPoint(T21, tmp, tmp2);
+	if (!vertexConeCheck(v, tmp2, 1)) return -INFINITY;
+
+	return dist;
+}
+
+float edge_face(edge **e, face **f, mat4 T12, mat4 T21, polyhedron *facePoly)
+{
+	planeNode *pn;
+	vec3 w, tmp;
+	float h1, h2, absH1, absH2;
+	float epsilon;
+	vec3 tmpV1, tmpV2;
+	float min, max;
+
+	// Compute distance of v1 and v2 from face
+	xformEdge(T12, *e);
+	h1 = planeDist((*f)->plane, (*e)->v1->xcoords);
+	h2 = planeDist((*f)->plane, (*e)->v2->xcoords);
+	absH1 = fabs(h1);
+	absH2 = fabs(h2);
+
+	// Compute a variable epsilon which will prevent
+	// edge-face / vertex-face cycling  and edge-face edge-edge cycling
+	// (1.5 is a safety factor)
+	if (EDGE_FACE_FLARE > EDGE_VERTEX_FLARE /*VERT_FLARE*/)
+		epsilon = /*1.5*/ 1.0e-4 + (*e)->len * sin(EDGE_FACE_FLARE);
+	else epsilon = /*1.5*/ 1.0e-4 + (*e)->len * sin(EDGE_VERTEX_FLARE /*VERT_FLARE*/);
+
+	// Fix for edges that would otherwise look || to f if h1 = -h2
+	if (((h1 < 0.0 && h2 > 0.0) || (h1 > 0.0 && h2 < 0.0))
+		&& (fabs(h1 - h2) > epsilon)) 
+	{
+		*f = (face *)closestEdgeOrVertexOnFace(*f, *e);
+		return -INFINITY;
+	}
+
+	if (absH1 < absH2 - epsilon) 
+	{
+		// Case I: v1 is closer 
+		// Check if v1 lies in f's cone 
+		for (pn = (*f)->cone; pn; pn = pn->next)
+		{
+			if (planeDist(pn->plane, (*e)->v1->xcoords) < 0.0) break;
+		}
+		if (pn) *f = (face *)closestEdgeOrVertexOnFace(*f, *e);
+		else if (h1 < 0.0) *f = (face *)closestToEdge(*e, facePoly, T12);
+		else *e = (edge *)(*e)->v1;
+		return -INFINITY;
+	}
+
+	if (absH2 < absH1 - epsilon) 
+	{
+		// Case II: v2 is closer
+		// Check if v2 lies in f's cone
+		for (pn = (*f)->cone; pn; pn = pn->next)
+		{
+			if (planeDist(pn->plane, (*e)->v2->xcoords) < 0.0) break;
+		}
+		if (pn) *f = (face *)closestEdgeOrVertexOnFace(*f, *e);
+		else if (h2 < 0.0) *f = (face *)closestToEdge(*e, facePoly, T12);
+		else *e = (edge *)(*e)->v2;
+		return -INFINITY;
+	}
+
+	else 
+	{
+		// Case III: e is parallel to face 
+
+		if (!polygonCut(*f, *e, &min, &max)) 
+		{
+			*f = (face *)closestEdgeOrVertexOnFace(*f, *e);
+			return -INFINITY;
+		}
+
+		tmpV1 = displacePoint((*e)->v1->xcoords, (*e)->xu, min);
+		h1 = planeDist((*f)->plane, tmpV1);
+		tmpV2 = displacePoint((*e)->v1->xcoords, (*e)->xu, max);
+		h2 = planeDist((*f)->plane, tmpV2);
+		if (h1 < 0.0 || h2 < 0.0) 
+		{
+			*f = (face *)closestToEdge(*e, facePoly, T12);
+			return -INFINITY;
+		}
+
+		// With flared planes, Ming's algo must be changed.  We must compare the
+		// face's normal directly to the two face plane normals of the edge's cone,
+		// rather than comparing it to a vector derived from the edge direction and
+		// the normals of the neighboring faces.
+		// Note we assume the face planes are the first two in the edge's cone list!
+		xformVector(T21, (*f)->plane, w);
+		if (dot(w, (*e)->cone->plane) > 0.0) 
+		{
+			*e = (edge *)(*e)->cone->nbr;
+			return -INFINITY;
+		}
+		if (dot(w, (*e)->cone->next->plane) > 0.0) 
+		{
+			*e = (edge *)(*e)->cone->next->nbr;
+			return -INFINITY;
+		}
+
+		if (h1 <= h2) 
+		{
+			tmp = (*f)->plane * h1;
+			return h1;
+		}
+		else 
+		{
+			tmp = (*f)->plane * h2;
+			return h2;
+		}
+	}
+}
+
+/*
+ * Check if two faces are a closest feature pair
+ *
+ * The parallel, overlapping face-face case is rather complicated.
+ * We first try to compute
+ * the distance from face A to face B by finding the smallest positive dist of
+ * any vertex of A from the plane of B or any vertex of B from the plane of A.
+ * Negative distances are ignored under the assumption that they are just due
+ * to numerical errors that result when the vertex of A is very laterally
+ * distant from B (e.g. inifinite planes), unless all distances are negative,
+ * in which case we assume faces have interpenetrated.
+ */
+float face_face(face **f1, face **f2, mat4 T12, mat4 T21, polyhedron *face1poly, polyhedron *face2poly)
+{
+	planeNode *pn;
+	featureNode *fn;
+	edge *e1, *e2, *e;
+	vec3 w;
+	float k;
+	void *feature;
+	float min, max;
+	int penetration;
+	float dist, minDist;
+	vec3 tmpV, tmpV2;
+
+	xformVector(T21, (*f2)->plane, w);
+	k = dot((*f1)->plane, w);
+	if (fabs(k) > 1.0 - EPSILON) 
+	{
+		// Case I: faces are parallel
+		if (faceOverlap(*f1, *f2, T12, T21)) 
+		{
+			// Modified this case.  Used to determine if plane A was on (parallel)
+			// plane B's inner side if the first vertex of A was on B's negative
+			// side.  This cause probs when A is very large compared to B - even
+			// if planes are roughly parallel, a distant vertex of A could appear
+			// to lie quite far into B's negative side.
+
+			// Fix: we clip one polygon to area of other one, therby
+			// avoiding checks of vertices which are located far away from
+			// one of the polygons. 
+
+			minDist = INFINITY;
+			penetration = 0;
+
+			// Look at where f2's cone cuts f1's edges
+			for (fn = (*f1)->edges; fn; fn = fn->next) 
+			{
+				e = fn->f.e;
+				xformEdge(T12, e);
+				if (polygonCut(*f2, e, &min, &max)) 
+				{
+					tmpV = displacePoint(e->v1->xcoords, e->xu, min);
+					dist = planeDist((*f2)->plane, tmpV);
+					if (dist < minDist) 
+					{
+						if (penetration = (dist < 0.0)) break;
+						minDist = dist;
+						tmpV2 = (*f2)->plane * dist;
+					}
+					tmpV = displacePoint(e->v1->xcoords, e->xu, max);
+					dist = planeDist((*f2)->plane, tmpV);
+					if (dist < minDist) 
+					{
+						if (penetration = (dist < 0.0)) break;
+						minDist = dist;
+						tmpV2 = (*f2)->plane * dist;
+					}
+				}
+			}
+			if (penetration) 
+			{
+				*f2 = (face *)closestToFace(*f1, face2poly, T12, T21);
+				return -INFINITY;
+			}
+
+			// Look at where f1's cone cuts f2's edges
+			for (fn = (*f2)->edges; fn; fn = fn->next) 
+			{
+				e = fn->f.e;
+				xformEdge(T21, e);
+				if (polygonCut(*f1, e, &min, &max)) 
+				{
+					tmpV = displacePoint(e->v1->xcoords, e->xu, min);
+					dist = planeDist((*f1)->plane, tmpV);
+					if (dist < minDist) 
+					{
+						if (penetration = (dist < 0.0)) break;
+						minDist = dist;
+						tmpV2 = (*f1)->plane * dist;
+					}
+					tmpV = displacePoint(e->v1->xcoords, e->xu, max);
+					dist = planeDist((*f1)->plane, tmpV);
+					if (dist <  minDist) {
+						if (penetration = (dist < 0.0)) break;
+						minDist = dist;
+						tmpV2 = (*f1)->plane * dist;
+					}
+				}
+			}
+			if (penetration) 
+			{
+				*f1 = (face *)closestToFace(*f2, face1poly, T21, T12);
+				return -INFINITY;
+			}
+
+			return minDist;
+		}
+
+		closestEdges(*f1, *f2, T12, &e1, &e2);
+		*f1 = (face *)e1;
+		*f2 = (face *)e2;
+		return -INFINITY;
+	}
+
+	else 
+	{
+		// Case II: faces not parallel
+
+		// Return f2 & edge/vert of f1
+		feature = closestToFacePlane(*f2, *f1, T21, T12);
+		if (featureTag(feature) == V) 
+		{
+			xformVertex(T12, (vertex *)feature);
+			for (pn = (*f2)->cone; pn; pn = pn->next)
+			{
+				if (planeDist(pn->plane, ((vertex *)feature)->xcoords) < 0.0) break;
+			}
+			if (!pn) 
+			{
+				*f1 = (face *)feature;
+				return -INFINITY;
+			}
+		}
+		else 
+		{
+			e = (EDGE *)feature;
+			xformEdge(T12, e);
+			/*
+			h1 = planeDist((*f2)->plane, e->v1->xcoords);
+			h2 = planeDist((*f2)->plane, e->v2->xcoords);
+			vectScale((*f2)->plane, tmp, h1);
+			vectSub(e->v1->xcoords, tmp, w1);
+			vectScale((*f2)->plane, tmp, h2);
+			vectSub(e->v2->xcoords, tmp, w2);
+			if (polygonCut(*f2, w1, w2)) {
+			*/
+			if (polygonCut(*f2, e, &min, &max)) 
+			{
+				*f1 = (face *)feature;
+				return -INFINITY;
+			}
+		}
+
+		/* return f1 & edge/vert of f2 */
+		feature = closestToFacePlane(*f1, *f2, T12, T21);
+		if (featureTag(feature) == V) 
+		{
+			xformVertex(T21, (vertex *)feature);
+			for (pn = (*f1)->cone; pn; pn = pn->next)
+			{
+				if (planeDist(pn->plane, ((vertex *)feature)->xcoords) < 0.0) break;
+			}
+			if (!pn) 
+			{
+				*f2 = (face *)feature;
+				return -INFINITY;
+			}
+		}
+		else 
+		{
+			e = (edge *)feature;
+			xformEdge(T21, e);
+			/*
+			h1 = planeDist((*f1)->plane, e->v1->xcoords);
+			h2 = planeDist((*f1)->plane, e->v2->xcoords);
+			vectScale((*f1)->plane, tmp, h1);
+			vectSub(e->v1->xcoords, tmp, w1);
+			vectScale((*f1)->plane, tmp, h2);
+			vectSub(e->v2->xcoords, tmp, w2);
+			if (polygonCut(*f1, w1, w2)) {
+			*/
+			if (polygonCut(*f1, e, &min, &max)) {
+				*f2 = (face *)feature;
+				return -INFINITY;
+			}
+		}
+		closestEdges(*f1, *f2, T12, &e1, &e2);
+		*f1 = (face *)e1;
+		*f2 = (face *)e2;
+		return -INFINITY;
+	}
+}
+
+/*
+ * Try to get a distance between features, even if the closest
+ * feature algorithm is cycling.
+ *
+ * After the cycle detector is reset (by calling with reset = 1),
+ * cycleDetector() will repeatedly return -INFINITY, until a cycle
+ * is detected, at which time it will return a positive distance
+ * - posisbly infinity - according to the smallest distance found so far.
+ * A cycle is detected when the distance between the current features
+ * fails to be lower than the minimum dist found thus far at least 5 times.
+ */
+float cycleDetector(void **feat1, void **feat2, mat4 T12, mat4 T21, int reset)
+{
+	float dist;
+	int flag;
+	char name1[20], name2[20];
+
+	static int cycleCounter;
+	static float minDist;
+	static void *bestCF1, *bestCF2;
+
+	if (reset) 
+	{
+		minDist = INFINITY;
+		cycleCounter = 0;
+		return 0.0;  // Return value irrelevant here
+	}
+
+	featureName(*feat1, name1);
+	featureName(*feat2, name2);
+	printf("cycle? : feat1 = %-20s feat2 = %-s\n", name1, name2);
+
+	flag = (featureTag(*feat1) << 2) + featureTag(*feat2);
+	switch (flag) 
+	{
+		case (V << 2) + V:
+			xformVertex(T21, (vertex *)feat2);
+			dist = Dvv((vertex *)feat1, (vertex *)feat2);
+			break;
+		case (V << 2) + E:
+			xformEdge(T21, (edge *)feat2);
+			dist = Dve((vertex *)feat1, (edge *)feat2);
+			break;
+		case (V << 2) + F:
+			xformVertex(T12, (vertex *)feat1);
+			dist = Dfv((face *)feat2, (vertex *)feat1);
+			break;
+		case (E << 2) + V:
+			xformVertex(T21, (vertex *)feat2);
+			dist = Dev((edge *)feat1, (vertex *)feat2);
+			break;
+		case (E << 2) + E:
+			xformEdge(T21, (edge *)feat2);
+			dist = Dee((edge *)feat1, (edge *)feat2);
+			break;
+		case (E << 2) + F:
+			xformEdge(T12, (edge *)feat1);
+			dist = Dfe((face *)feat2, (edge *)feat1);
+			break;
+		case (F << 2) + V:
+			xformVertex(T21, (vertex *)feat2);
+			dist = Dfv((face *)feat1, (vertex *)feat2);
+			break;
+		case (F << 2) + E:
+			xformEdge(T21, (edge *)feat2);
+			dist = Dfe((face *)feat1, (edge *)feat2);
+			break;
+		case (F << 2) + F:
+			dist = Dff((face *)feat1, (face *)feat2, T12, T21);
+			break;
+	}
+
+	printf("dist=%+14.10f min=%+14.10f\n", dist, minDist);
+	if (dist >= minDist) cycleCounter++;
+	else 
+	{
+		minDist = dist;
+		bestCF1 = *feat1;
+		bestCF2 = *feat2;
+	}
+
+	if (cycleCounter == 5) 
+	{
+		// Cycle detected!
+		*feat1 = bestCF1;
+		*feat2 = bestCF2;
+
+		// Uncomment next line to find out how often cycles are occuring 
+		// printf("cycle detector returns %+12.6f\n", minDist); 
+
+		return minDist;
+	}
+
+	else return -INFINITY;
+}
+
+/*
+ * Closest feature pair
+ *
+ * Compute the closest feature pair for polyhedra poly1 & poly2.  The initial
+ * feature pair passed is passed in via feat1 & feat2, and upon termination
+ * these are updated to reflect the new closest feature pair.  The routine
+ * returns the distance between the pair of closest features.
+ *
+ * We keep track of the number of iterations of the algorithm (i.e. how
+ * many "steps" we take as we walk around the polyhedra, looking for
+ * closest features).  If this count reaches CYCLE_CNT, we assume we
+ * are stuck in a cycle, and invoke the cycle detection system.
+ * Under normal circumstances, this should rarely occur.  If the polyhedra
+ * have high numbers of facets (tens of thousands) or experience large
+ * changes in pose between calls to closestFeatures, CYCLE_CNT may have
+ * to be increased.
+ */
+float closestFeatures(polyhedron *poly1, void **feat1, polyhedron *poly2, void **feat2)
+{
+	int type1, type2;
+	float dist;
+	mat4 T12, T21, inv;
+	int cycleChk;
+	#define CYCLE_CNT 500
+
+
+	// Compute transformation matrices between the two polyhedron frames
+	matInvXform(poly2->pose, inv);
+	matMultXform(inv, poly1->pose, T12);
+	matInvXform(T12, T21);
+
+	cycleChk = 0;
+
+	do {
+
+		if (cycleChk++ == CYCLE_CNT) cycleDetector(feat1, feat2, T12, T21, 1);
+		else if (cycleChk > CYCLE_CNT) 
+		{
+			dist = cycleDetector(feat1, feat2, T12, T21, 0);
+			if (dist > 0.0) return dist;
+		}
+
+		type1 = featureTag(*feat1);
+		type2 = featureTag(*feat2);
+
+		if (type1 == V) 
+		{
+			if (type2 == V) dist = vertex_vertex((vertex **)feat1, (vertex **)feat2, T12, T21);
+			else if (type2 == E) dist = vertex_edge((vertex **)feat1, (edge **)feat2, T12, T21);
+			else dist = vertex_face((vertex **)feat1, (face **)feat2, T12, T21, poly2);
+		}
+		else if (type1 == E) 
+		{
+			if (type2 == V) dist = vertex_edge((vertex **)feat2, (edge **)feat1, T21, T12);
+			else if (type2 == E) dist = edge_edge((edge **)feat1, (edge **)feat2, T12, T21);
+			else dist = edge_face((edge **)feat1, (face **)feat2, T12, T21, poly2);
+		}
+		else 
+		{
+			if (type2 == V) dist = vertex_face((vertex **)feat2, (face **)feat1, T21, T12, poly1);
+			else if (type2 == E)
+				dist = edge_face((edge **)feat2, (face **)feat1, T21, T12, poly1);
+			else dist = face_face((face **)feat1, (face **)feat2, T12, T21, poly1, poly2);
+		}
+
+	} while (dist < 0.0);
+
+	return dist;
+}
+
+/*
+ * Intialize closest feature pair
+ *
+ * Functionally, this is identical to closestFeatures, except we call this
+ * routine the first time, when we have not yet initialized feat1 and feat2.
+ * This routine simply chooses a starting feature on each of the polyhedra,
+ * and then calls closestFeatures.
+ * 
+ * We choose the starting features in a fairly dumb manner, picking the
+ * first vertex in each polyhedron's vertex list.  This is totally arbitrary.
+ * There may be smarter ways of doing it, but it really doesn't matter, since
+ * we only perform this operation once, and then all subsequent calls are to
+ * closestFeatures.
+ */
+
+float closestFeaturesInit(polyhedron *poly1, void **feat1, polyhedron *poly2, void **feat2)
+{
+	*feat1 = poly1->verts->f.v;
+	*feat2 = poly2->verts->f.v;
+	return closestFeatures(poly1, feat1, poly2, feat2);
 }

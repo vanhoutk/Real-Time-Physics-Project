@@ -936,4 +936,41 @@ float quatMagnitude(versor v)
 	return result;
 }
 
+vec3 mat3vec3(mat3 M, vec3 x)
+{
+	vec3 x2;
+
+	for (int i = 0; i < 3; i++)
+		x2.v[i] = M.m[i*3] * x.v[0] + M.m[(i*3) + 1] * x.v[1] + M.m[(i*3) + 2] * x.v[2];
+
+	return x2;
+}
+
+float planeDist(vec4 plane, vec3 point)
+{
+	return plane.v[0] * point.v[0] +
+			plane.v[1] * point.v[1] +
+			plane.v[2] * point.v[2] + plane.v[3];
+}
+
+/*
+ * Displace point:  point + lambda * vect => result
+ *
+ * Compute the point which is displaced (lambda * vect) from point.
+ */
+vec3 displacePoint(vec3 point, vec3 vec, float lambda)
+{
+	vec3 result;
+	result.v[0] = point.v[0] + lambda * vec.v[0];
+	result.v[1] = point.v[1] + lambda * vec.v[1];
+	result.v[2] = point.v[2] + lambda * vec.v[2];
+	return result;
+}
+
+bool vec3equal(vec3 a, vec3 b)
+{
+	if (a.v[0] == b.v[0] && a.v[1] == b.v[1] && a.v[2] == b.v[2])
+		return true;
+	else return false;
+}
 #endif

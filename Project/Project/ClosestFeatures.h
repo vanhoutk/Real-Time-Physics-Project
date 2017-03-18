@@ -174,16 +174,16 @@ typedef struct edge EDGE;
 
 struct face 
 {
-	int tag;				// Used for identifying feature type (V, E, F)
+	int tag;			// Used for identifying feature type (V, E, F)
 	char name[20];
-	featureNode *vertices;	// List of vertices in CCW order around a face
-	featureNode *edges;		// List of boundary edges in CCW order of a face
-	vec4 plane;				// It defines the four coefficients of the plane of the face, i.e.the plane of the
-							// face is given by plane[0] * x + plane[1] * y + plane[2] * z + plane[3] = 0.
-							// Furthermore, the first 3 components are a unit vector, which form
-							// the outward normal of the face.
-	planeNode *cone;		// Points to the list of planes defining the feature's voronoi region
-							// For a face, only the side planes are present in this list.
+	featureNode *verts;	// List of vertices in CCW order around a face
+	featureNode *edges;	// List of boundary edges in CCW order of a face
+	vec4 plane;			// It defines the four coefficients of the plane of the face, i.e.the plane of the
+						// face is given by plane[0] * x + plane[1] * y + plane[2] * z + plane[3] = 0.
+						// Furthermore, the first 3 components are a unit vector, which form
+						// the outward normal of the face.
+	planeNode *cone;	// Points to the list of planes defining the feature's voronoi region
+						// For a face, only the side planes are present in this list.
 };
 typedef struct face FACE;
 
@@ -212,7 +212,7 @@ typedef struct featureNode FNODE;
 
 struct planeNode 
 {
-	float plane[4];
+	vec4 plane;
 	// plane[0] * x + plane[1] * y + plane[2] * z + plane[3] >= 0 
 	void *nbr; // point to feature to move to if this test fails 
 	struct planeNode *next;  // if there are more planes in this cone
@@ -262,6 +262,92 @@ typedef struct planeNode PNODE;
 // #define setPose(p, T) mat4copy(T, (p)->pose)
 #pragma endregion
 
+#pragma region XFORM_FUNCTIONS
+void xformPoint(mat4 M, vec3 p, vec3 &result)
+{
+	for (int i = 0; i < 3; i++)
+		result.v[i] = M.m[i * 3] * p.v[0] + M.m[(i * 3) + 1] * p.v[1] + M.m[(i * 3) + 2] * p.v[2] + M.m[(i * 3) + 3];
+}
+
+void xformVector(mat4 M, vec3 p, vec3 &result)
+{
+	for (int i = 0; i < 3; i++)
+		result.v[i] = M.m[i * 3] * p.v[0] + M.m[(i * 3) + 1] * p.v[1] + M.m[(i * 3) + 2] * p.v[2];
+}
+
+void xformVertex(mat4 M, vertex *v)
+{
+	xformPoint(M, v->coords, v->xcoords);
+}
+
+void xformEdge(mat4 M, edge *e)
+{
+	xformPoint(M, e->v1->coords, e->v1->xcoords);
+	xformPoint(M, e->v2->coords, e->v2->xcoords);
+	xformVector(M, e->u, e->xu);
+}
+
+/*
+ * Transformation matrix inversion:  Inverse(M) => inv
+ * N.B. M and inv should not point to the same matrix.  We assume M is a
+ * transformation matrix; this will not properly invert arbitrary 4x4 matrices.
+ */
+
+void matInvXform(mat4 M, mat4 &inv)
+{
+	// We invert the rotation part by transposing it 
+	inv.m[0] = M.m[0];
+	inv.m[1] = M.m[4];
+	inv.m[2] = M.m[8];
+	inv.m[4] = M.m[1];
+	inv.m[5] = M.m[5];
+	inv.m[6] = M.m[9];
+	inv.m[8] = M.m[2];
+	inv.m[9] = M.m[6];
+	inv.m[10] = M.m[10];
+
+	// The new displacement vector is given by:  d' = -(R^-1) * d 
+	inv.m[3] = -inv.m[0] * M.m[3] - inv.m[1] * M.m[7] - inv.m[2] * M.m[11];
+	inv.m[7] = -inv.m[4] * M.m[3] - inv.m[5] * M.m[7] - inv.m[6] * M.m[11];
+	inv.m[11] = -inv.m[8] * M.m[3] - inv.m[9] * M.m[7] - inv.m[10] * M.m[11];
+
+	// The rest stays the same
+	inv.m[12] = inv.m[13] = inv.m[14] = 0.0;
+	inv.m[15] = 1.0;
+}
+
+/*
+ * Transformation matrix multiply:  a * b => c
+ * N.B. This routine is much faster than the general 4 x 4 matrix
+ * multiply above, but only works properly if a and b are SE(3) transformation
+ * matrices.  c should not point to the same matrix as a or b!
+ */
+void matMultXform(mat4 a, mat4 b, mat4 &c)
+{
+	int i, j;
+
+	// Rc = Ra Rb
+	c.m[0] = a.m[0] * b.m[0] + a.m[1] * b.m[4] + a.m[2] * b.m[8];
+	c.m[1] = a.m[0] * b.m[1] + a.m[1] * b.m[5] + a.m[2] * b.m[9];
+	c.m[2] = a.m[0] * b.m[2] + a.m[1] * b.m[6] + a.m[2] * b.m[10];
+	c.m[4] = a.m[4] * b.m[0] + a.m[5] * b.m[4] + a.m[6] * b.m[8];
+	c.m[5] = a.m[4] * b.m[1] + a.m[5] * b.m[5] + a.m[6] * b.m[9];
+	c.m[6] = a.m[4] * b.m[2] + a.m[5] * b.m[6] + a.m[6] * b.m[10];
+	c.m[8] = a.m[8] * b.m[0] + a.m[9] * b.m[4] + a.m[10] * b.m[8];
+	c.m[9] = a.m[8] * b.m[1] + a.m[9] * b.m[5] + a.m[10] * b.m[9];
+	c.m[10] = a.m[8] * b.m[2] + a.m[9] * b.m[6] + a.m[10] * b.m[10];
+
+	// Vc = Ra Vb + Va
+	c.m[3] = a.m[0] * b.m[3] + a.m[1] * b.m[7] + a.m[2] * b.m[11] + a.m[3];
+	c.m[7] = a.m[4] * b.m[3] + a.m[5] * b.m[7] + a.m[6] * b.m[11] + a.m[7];
+	c.m[11] = a.m[8] * b.m[3] + a.m[9] * b.m[7] + a.m[10] * b.m[11] + a.m[11];
+
+	// The rest
+	c.m[12] = c.m[13] = c.m[14] = 0.0;
+	c.m[15] = 1.0;
+}
+#pragma endregion
+
 /*
  * Miscellaneous macros
  */
@@ -274,53 +360,60 @@ typedef struct planeNode PNODE;
  * Function declarations
  */
 
-int getWord();
-int random2();
-void addFeature();
-void reverseFlist();
-void featureName();
-VERTEX *findVertex();
-EDGE *findEdge();
-FACE *findFace();
-int numFeats();
-void *nthFeat();
-void *randFeat();
-float polyRad();
-EDGE *newEdge();
+int getWord(FILE *fp, char *s);
+int randomNumber(int n);
+
+void addFeature(void *feature, featureNode **list);
+void reverseFlist(featureNode **list);
+void featureName(void *feature, char *name);
+vertex *findVertex(polyhedron *p, char *name);
+edge *findEdge(polyhedron *p, char *name1, char *name2);
+face *findFace(polyhedron *p, char *name);
+int numFeatures(polyhedron *p);
+void *nthFeature(polyhedron *p, int n);
+void *randFeat(polyhedron *p);
+float polyhedronRadius(char *name);
+edge *newEdge(vertex *v1, vertex *v2);
+
 int loadPolyhedronLibrary();
 POLYHEDRON *createPolyhedron();
 void dumpPolyhedron();
-void addPlane();
-void flipPlane();
-void tweakPlaneNorm();
-void computeVertCone();
-void computeFaceCone();
-void buildCones();
-void dumpCones();
-int vertConeChk();
-int edgeConeChk();
-int faceConeChk();
-float Dvv();
-float Dev();
-float Dfv();
-float Dve();
-float Dee();
-float Dfe();
-float Dff();
-void *closestToVert();
-void *closestToEdge();
-void *closestToFace();
-void edgeCPs();
-void *closestEdgeOrVertOnFace();
-void closestEdges();
-void *closestToFacePlane();
-int polygonCut();
-int faceOverlap();
-float vertex_vertex();
-float vertex_edge();
-float edge_edge();
-float vertex_face();
-float edge_face();
-float face_face();
+
+void addPlane(planeNode *pn, planeNode **cone);
+void flipPlane(vec4 src, vec4 dest);
+void tweakPlaneNormal(vec3 u, float epsilon, vec3 nOrig, vec3 nTweak);
+void computeVertexCone(vertex *v);
+void computeFaceCone(face *f);
+void buildCones(polyhedron *p);
+void dumpCones(polyhedron *p);
+
+int vertexConeCheck(vertex **v, vec3 point, int update);
+int edgeConeCheck(edge **e, vec3 point, int update);
+int faceConeCheck(face **f, vec3 point, int update);
+
+float Dvv(vertex *v1, vertex *v2);
+float Dev(edge *e, vertex *v);
+float Dfv(face *f, vertex *v);
+float Dve(vertex *v, edge *e);
+float Dee(edge *e1, edge *e2);
+float Dfe(face *f, edge *e);
+float Dff(face *f1, face *f2, mat4 T12, mat4 T21);
+
+void *closestToVertex(vertex *v, polyhedron *p, mat4 Tvp);
+void *closestToEdge(edge *e, polyhedron *p, mat4 *Tep);
+void *closestToFace(face *f, polyhedron *p, mat4 Tfp, mat4 Tpf);
+void edgeCPs(edge **e1, edge **e2, vec3 cp1, vec3 cp2);
+void *closestEdgeOrVertexOnFace(face *f, edge *e);
+void closestEdges(face *f1, face *f2, mat4 T12, edge **closest1, edge **closest2);
+void *closestToFacePlane(face *f1, face *f2, mat4 T12, mat4 T21);
+int polygonCut(face *f, edge *e, float *min, float *max);
+int faceOverlap(face *f1, face *f2, mat4 T12, mat4 T21);
+
+float vertex_vertex(vertex **v1, vertex **v2, mat4 T12, mat4 T21);
+float vertex_edge(vertex **v, edge **e, mat4 T12, mat4 T21);
+float edge_edge(edge **e1, edge **e2, mat4 T12, mat4 T21);
+float vertex_face(vertex **v, face **f, mat4 T12, mat4 T21, polyhedron *facePoly);
+float edge_face(edge **e, face **f, mat4 T12, mat4 T21, polyhedron *facePoly);
+float face_face(face **f1, face **f2, mat4 T12, mat4 T21, polyhedron *face1poly, polyhedron *face2poly);
 float closestFeatures();
 float closestFeaturesInit();
