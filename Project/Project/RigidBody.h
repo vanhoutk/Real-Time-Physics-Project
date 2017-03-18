@@ -1,10 +1,11 @@
 #pragma once
 
 #include <GL/glew.h>
-#include <vector>	
+#include <vector>
 
 #include "Antons_maths_funcs.h"
 #include "Distance.h"
+#include "Mesh.h"
 
 // Colours
 vec4 red = vec4(1.0f, 0.0f, 0.0f, 1.0f);

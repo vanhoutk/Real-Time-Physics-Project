@@ -154,6 +154,7 @@
   <ItemGroup>
     <ClInclude Include="Antons_maths_funcs.h" />
     <ClInclude Include="Camera.h" />
+    <ClInclude Include="ClosestFeatures.h" />
     <ClInclude Include="Distance.h" />
     <ClInclude Include="Mesh.h" />
     <ClInclude Include="Model.h" />
@@ -163,6 +164,7 @@
     <ClInclude Include="text.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="ClosestFeatures.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="text.cpp" />
   </ItemGroup>
