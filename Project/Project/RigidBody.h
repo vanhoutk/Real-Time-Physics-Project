@@ -48,6 +48,7 @@ public:
 	mat4 rotation;			// Rotation Matrix R(t)
 	vec4 velocity;			// v(t)  = P(t) / mass
 	vec4 angularVelocity;	// w(t)  = I-1(t) * L(t)
+	mat4 transformationMatrix;
 
 	// Computed Quantities
 	vec4 torque;			// T(t)
@@ -91,6 +92,7 @@ public:
 	void drawMesh(mat4 view, mat4 projection, vec4 viewPosition);
 	void drawBoundingSphere(mat4 view, mat4 projection);
 	void drawAABB(mat4 view, mat4 projection, GLuint* shaderID);
+	void updateTransformation();
 };
 
 RigidBody::RigidBody()
@@ -124,6 +126,8 @@ RigidBody::RigidBody()
 	this->collisionAABB = false;
 
 	this->meshColour = vec4(0.0f, 0.0f, 0.0f, 0.0f);
+
+	updateTransformation();
 }
 
 RigidBody::RigidBody(Mesh rigidBodyMesh, GLfloat scaleFactor = 1.0f)
@@ -187,6 +191,8 @@ RigidBody::RigidBody(Mesh rigidBodyMesh, GLfloat scaleFactor = 1.0f)
 	this->meshColour = vec4(0.0f, 0.0f, 0.0f, 0.0f);
 
 	this->bodyCentroid = getCentroid();
+
+	updateTransformation();
 }
 
 RigidBody::RigidBody(int vertex_count, vector<float> vertex_positions)
@@ -243,6 +249,8 @@ RigidBody::RigidBody(int vertex_count, vector<float> vertex_positions)
 	this->meshColour = vec4(0.0f, 0.0f, 0.0f, 0.0f);
 
 	this->bodyCentroid = getCentroid();
+
+	updateTransformation();
 }
 
 RigidBody::~RigidBody()
@@ -464,6 +472,26 @@ void RigidBody::drawAABB(mat4 view, mat4 projection, GLuint* shaderID)
 	bounding_box.drawLine(view, projection, identity_mat4(), boundingBoxColour);
 
 	bounding_box.dispose();
+}
+
+void RigidBody::updateTransformation()
+{
+	transformationMatrix.m[0] = rotation.m[0];
+	transformationMatrix.m[1] = rotation.m[1];
+	transformationMatrix.m[2] = rotation.m[2];
+
+	transformationMatrix.m[4] = rotation.m[4];
+	transformationMatrix.m[5] = rotation.m[5];
+	transformationMatrix.m[6] = rotation.m[6];
+
+	transformationMatrix.m[8] = rotation.m[8];
+	transformationMatrix.m[9] = rotation.m[9];
+	transformationMatrix.m[10] = rotation.m[10];
+
+	transformationMatrix.m[12] = position.v[0];
+	transformationMatrix.m[13] = position.v[1];
+	transformationMatrix.m[14] = position.v[2];
+	transformationMatrix.m[15] = position.v[3];
 }
 #pragma endregion
 
@@ -745,6 +773,8 @@ void updateRigidBodies(GLuint mode, GLuint numRigidBodies, vector<RigidBody> &ri
 
 		// Reset the colliding with counter
 		rigidBody.collidingWith = 0;
+
+		rigidBody.updateTransformation();
 	}
 }
 #pragma endregion
