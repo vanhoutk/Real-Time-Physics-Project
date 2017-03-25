@@ -19,6 +19,7 @@
 
 #include "Antons_maths_funcs.h" // Anton's maths functions
 #include "Camera.h"
+#include "ClosestFeatures2.h"
 #include "Distance.h"
 #include "Mesh.h"
 #include "Model.h"
@@ -40,7 +41,7 @@ bool firstMouse = true;
 bool keys[1024];
 bool pause = false;
 Camera camera(vec3(0.0f, 0.0f, 4.0f));
-const GLuint numRigidBodies = 5;
+const GLuint numRigidBodies = 1;
 enum Meshes { PLANE_MESH, D6_MESH, SPHERE_MESH, D4_MESH, D8_MESH, D10_MESH, D12_MESH, D20_MESH};
 enum Shaders { SKYBOX, BASIC_COLOUR_SHADER, BASIC_TEXTURE_SHADER, LIGHT_SHADER, LIGHT_TEXTURE_SHADER };
 enum Textures { PLANE_TEXTURE, D4_TEXTURE, D6_TEXTURE, D8_TEXTURE, D10_TEXTURE, D12_TEXTURE, D20_TEXTURE};
@@ -266,7 +267,7 @@ void init()
 	d4.generateObjectBufferMesh(meshFiles[D4_MESH]);
 	d4.loadTexture(textureFiles[D4_TEXTURE]);
 
-	d6 = Mesh(&shaderProgramID[BASIC_TEXTURE_SHADER]);
+	/*d6 = Mesh(&shaderProgramID[BASIC_TEXTURE_SHADER]);
 	d6.generateObjectBufferMesh(meshFiles[D6_MESH]);
 	d6.loadTexture(textureFiles[D6_TEXTURE]);
 
@@ -284,7 +285,7 @@ void init()
 
 	d20 = Mesh(&shaderProgramID[BASIC_TEXTURE_SHADER]);
 	d20.generateObjectBufferMesh(meshFiles[D20_MESH]);
-	d20.loadTexture(textureFiles[D20_TEXTURE]);
+	d20.loadTexture(textureFiles[D20_TEXTURE]);*/
 
 	sphereMesh = Mesh(&shaderProgramID[BASIC_COLOUR_SHADER]);
 	sphereMesh.generateObjectBufferMesh(meshFiles[SPHERE_MESH]);
@@ -294,7 +295,7 @@ void init()
 	d4rb.addBoundingSphere(sphereMesh, green);
 	rigidbodies.push_back(d4rb);
 
-	RigidBody d6rb = RigidBody(d6, 0.2f);
+	/*RigidBody d6rb = RigidBody(d6, 0.2f);
 	d6rb.addBoundingSphere(sphereMesh, green);
 	rigidbodies.push_back(d6rb);
 
@@ -308,7 +309,7 @@ void init()
 
 	RigidBody d20rb = RigidBody(d20, 0.4f);
 	d20rb.addBoundingSphere(sphereMesh, green);
-	rigidbodies.push_back(d20rb);
+	rigidbodies.push_back(d20rb);*/
 
 	initialiseRigidBodies(true);
 }

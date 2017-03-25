@@ -42,7 +42,7 @@
     <ClInclude Include="text.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="ClosestFeatures.h">
+    <ClInclude Include="ClosestFeatures2.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
@@ -51,9 +51,6 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="text.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="ClosestFeatures.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
