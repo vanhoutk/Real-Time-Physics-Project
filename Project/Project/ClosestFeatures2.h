@@ -380,7 +380,7 @@ void dumpPolyhedron(polyhedron *p);
 
 void addPlane(planeNode *pn, planeNode **cone);
 void flipPlane(vec4 src, vec4 &dest);
-void tweakPlaneNormal(vec3 u, float epsilon, vec4 nOrig, vec4 &nTweak);
+void tweakPlaneNormal(vec3 u, float epsilon, vec3 nOrig, vec4 &nTweak);
 void computeVertexCone(vertex *v);
 void computeFaceCone(face *f);
 void buildCones(polyhedron *p);
@@ -694,7 +694,7 @@ edge *newEdge(vertex *v1, vertex *v2)
 * variable polyhedronLibraryCount is also initialized.
 */
 
-int loadPolyhedronLibrary(char *fname)
+/*int loadPolyhedronLibrary(char *fname)
 {
 	FILE *fp;
 	char s[80];
@@ -807,7 +807,7 @@ int loadPolyhedronLibrary(char *fname)
 	printf("%d polyhedra in library\n\n", n);
 	return n;
 
-}
+}*/
 
 
 /*
@@ -853,14 +853,17 @@ int loadPolyhedronLibrary(char *fname)
 polyhedron *createPolyhedron(char *name, vector<vec4> bodyVertices, mat4 *transformation)
 {
 	polyhedron *new_polyhedron;
+	vertex *v;
+	face *f;
+	edge *e, *e1, *e2;
+	vertex *start, *last;
+	featureNode *fn;
+
 	new_polyhedron = allocPolyhedron;
 	strcpy_s(new_polyhedron->name, 20, name);
 
 	new_polyhedron->pose = transformation;
-
 	new_polyhedron->verts = new_polyhedron->edges = new_polyhedron->faces = NULL;
-
-	vertex *v;
 
 	for (int i = 0; i < bodyVertices.size(); i++)
 	{
@@ -875,11 +878,10 @@ polyhedron *createPolyhedron(char *name, vector<vec4> bodyVertices, mat4 *transf
 		v->coords = bodyVertices[i];
 		v->edges = NULL;
 		addFeature(v, &new_polyhedron->verts);
+
+		// TODO: Take out duplicates
 	}
 
-	face *f;
-
-	//Replace while with for loop
 	for (int i = 0; i < (bodyVertices.size() / 3); i++){
 
 		ostringstream oss;
@@ -893,74 +895,76 @@ polyhedron *createPolyhedron(char *name, vector<vec4> bodyVertices, mat4 *transf
 		f->cone = NULL;
 		addFeature(f, &new_polyhedron->faces);
 
-		for (int j = 0; j < 3; j++)
+		ostringstream vertex_oss;
+		vertex_oss << "v" << ((3 * i));
+		string vertex_name = vertex_oss.str();
+
+		last = start = findVertex(new_polyhedron, strdup(vertex_name.c_str()));
+
+		for (int j = 1; j <= 3; j++)
 		{
-			ostringstream vertex_oss;
-			vertex_oss << "v" << ((3*i) + j);
-			string vertex_name = vertex_oss.str();
-
-			v = findVertex(new_polyhedron, strdup(vertex_name.c_str()));
+			if (j < 3)
+			{
+				vertex_oss << "v" << ((3 * i) + j);
+				vertex_name = vertex_oss.str();
+				v = findVertex(new_polyhedron, strdup(vertex_name.c_str()));
+			}
+			else
+			{
+				v = start;
+			}
 			addFeature(v, &f->verts);
-		}
-	}
 
-	// read faces 
-	while (1) {
-		fscanf_s(fp, "%s", s, sizeof(s));
-		if (s[0] == '*') break;
-		if (s[0] == '-') sprintf_s(s, "#F_%d", ++nameCounter);
-		f = allocFace;
-		f->tag = F;
-		strcpy_s(f->name, 20, s);
-		f->verts = f->edges = NULL;
-		f->cone = NULL;
-		addFeature(f, &p->faces);
-		getWord(fp, s);
-		start = last = findVertex(p, s);
-		do {
-			if (cont = getWord(fp, s)) v = findVertex(p, s);
-			else v = start;
-			addFeature(v, &f->verts);
-			if (e = findEdge(p, last->name, v->name)) {
+			if (e = findEdge(new_polyhedron, last->name, v->name))
+			{
 				if (e->fl) e->fr = f;
 				else e->fl = f;
 			}
-			else {
+			else
+			{
 				e = newEdge(last, v);
 				if (strcmp(last->name, v->name) < 0) e->fl = f;
 				else e->fr = f;
-				addFeature(e, &p->edges);
+				addFeature(e, &new_polyhedron->edges);
 			}
 			addFeature(e, &f->edges);
 			last = v;
-		} while (cont);
-		// compute face plane coeffs (& outward normal)  
+		}
+
+		// Compute face plane coeffs (& outward normal)  
 		e1 = f->edges->f.e;
 		e2 = f->edges->next->f.e;
-		// the "not" below is necessary because we haven't reversed the
-		// vertex list to its proper CCW order yet; right now it's in CW order 
 
+		// The "not" below is necessary because we haven't reversed the
+		// vertex list to its proper CCW order yet; right now it's in CW order 
 		vec3 f_plane;
+		
+		// TODO: Figure out if the next three lines are incorrect now
 		if (!(e1->v1 == e2->v2 || e1->v2 == e2->v1))
 			f_plane = cross(e1->u, e2->u);
 		else f_plane = cross(e2->u, e1->u);
+		
 		f_plane = normalise(f_plane);
 		f->plane = vec4(f_plane.v[0], f_plane.v[1], f_plane.v[2], f->plane.v[3]);
 		f->plane.v[3] = -1 * dot(f->plane, f->verts->f.v->coords);
 	}
 
-	// clean up lists 
-	for (fn = p->verts; fn; fn = fn->next) reverseFlist(&fn->f.v->edges);
-	for (fn = p->faces; fn; fn = fn->next) {
+	//Check which of these I need to do
+
+	// Clean up lists 
+	for (fn = new_polyhedron->verts; fn; fn = fn->next) reverseFlist(&fn->f.v->edges);
+
+	for (fn = new_polyhedron->faces; fn; fn = fn->next) {
 		reverseFlist(&fn->f.f->verts->next);
 		reverseFlist(&fn->f.f->edges);
 	}
-	reverseFlist(&p->verts);
-	reverseFlist(&p->edges);
-	reverseFlist(&p->faces);
 
-	// build the voronoi regions for the polyhedron 
-	buildCones(p);
+	//reverseFlist(&new_polyhedron->verts);
+	//reverseFlist(&new_polyhedron->edges);
+	//reverseFlist(&new_polyhedron->faces);
+
+	// Build the voronoi regions for the polyhedron 
+	buildCones(new_polyhedron);
 
 	return new_polyhedron;
 }
@@ -2653,8 +2657,8 @@ float closestFeatures(polyhedron *poly1, void **feat1, polyhedron *poly2, void *
 	int cycleChk;
 
 	// Compute transformation matrices between the two polyhedron frames
-	matInvXform(poly2->pose, inv);
-	matMultXform(inv, poly1->pose, T12);
+	matInvXform(*poly2->pose, inv);
+	matMultXform(inv, *poly1->pose, T12);
 	matInvXform(T12, T21);
 
 	cycleChk = 0;
