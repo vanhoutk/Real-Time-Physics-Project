@@ -179,6 +179,12 @@ struct vec3 {
 		return *this;
 	}
 
+	bool operator!= (const vec3& rhs) {
+		if (v[0] == rhs.v[0] && v[1] == rhs.v[1] && v[2] == rhs.v[2])
+			return false;
+		return true;
+	}
+
 	// internal data
 	float v[3];
 };

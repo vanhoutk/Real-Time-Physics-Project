@@ -366,6 +366,7 @@ void addFeature(void *feature, featureNode **list);
 void reverseFlist(featureNode **list);
 void featureName(void *feature, char *name);
 vertex *findVertex(polyhedron *p, char *name);
+vertex *findVertex(polyhedron *p, vec3 coords);
 edge *findEdge(polyhedron *p, char *name1, char *name2);
 face *findFace(polyhedron *p, char *name);
 int numFeatures(polyhedron *p);
@@ -374,8 +375,9 @@ void *randFeat(polyhedron *p);
 float polyhedronRadius(char *name);
 edge *newEdge(vertex *v1, vertex *v2);
 
-int loadPolyhedronLibrary();
-polyhedron *createPolyhedron();
+//int loadPolyhedronLibrary();
+//polyhedron *createPolyhedron();
+polyhedron *createPolyhedron(char *name, vector<vec4> bodyVertices, mat4 *transformation);
 void dumpPolyhedron(polyhedron *p);
 
 void addPlane(planeNode *pn, planeNode **cone);
@@ -546,6 +548,14 @@ vertex *findVertex(polyhedron *p, char *name)
 	featureNode *feature_node;
 
 	for (feature_node = p->verts; feature_node && strcmp(name, feature_node->f.v->name); feature_node = feature_node->next);
+	return (feature_node) ? feature_node->f.v : NULL;
+}
+
+vertex *findVertex(polyhedron *p, vec3 coords)
+{
+	featureNode *feature_node;
+
+	for (feature_node = p->verts; feature_node && feature_node->f.v->coords != coords; feature_node = feature_node->next);
 	return (feature_node) ? feature_node->f.v : NULL;
 }
 
@@ -858,6 +868,7 @@ polyhedron *createPolyhedron(char *name, vector<vec4> bodyVertices, mat4 *transf
 	edge *e, *e1, *e2;
 	vertex *start, *last;
 	featureNode *fn;
+	int vertex_count = 0, face_count = 0;
 
 	new_polyhedron = allocPolyhedron;
 	strcpy_s(new_polyhedron->name, 20, name);
@@ -865,27 +876,29 @@ polyhedron *createPolyhedron(char *name, vector<vec4> bodyVertices, mat4 *transf
 	new_polyhedron->pose = transformation;
 	new_polyhedron->verts = new_polyhedron->edges = new_polyhedron->faces = NULL;
 
-	for (int i = 0; i < bodyVertices.size(); i++)
+	for (unsigned int i = 0; i < bodyVertices.size(); i++)
 	{
 		ostringstream oss;
-		oss << "v" << i;
+		oss << "v" << vertex_count;
 		string vertex_name = oss.str();
 
-		v = allocVertex;
-		v->tag = V;
-		strcpy_s(v->name, vertex_name.c_str());
-		v->cone = NULL;
-		v->coords = bodyVertices[i];
-		v->edges = NULL;
-		addFeature(v, &new_polyhedron->verts);
-
-		// TODO: Take out duplicates
+		if (!(v = findVertex(new_polyhedron, bodyVertices[i])))
+		{
+			v = allocVertex;
+			v->tag = V;
+			strcpy_s(v->name, vertex_name.c_str());
+			v->cone = NULL;
+			v->coords = bodyVertices[i];
+			v->edges = NULL;
+			addFeature(v, &new_polyhedron->verts);
+			vertex_count++;
+		}
 	}
 
-	for (int i = 0; i < (bodyVertices.size() / 3); i++){
-
+	for (unsigned int i = 0; i < (bodyVertices.size() / 3); i++)
+	{
 		ostringstream oss;
-		oss << "f" << i;
+		oss << "f" << face_count;
 		string face_name = oss.str();
 
 		f = allocFace;
@@ -894,20 +907,23 @@ polyhedron *createPolyhedron(char *name, vector<vec4> bodyVertices, mat4 *transf
 		f->verts = f->edges = NULL;
 		f->cone = NULL;
 		addFeature(f, &new_polyhedron->faces);
+		face_count++;
 
 		ostringstream vertex_oss;
 		vertex_oss << "v" << ((3 * i));
 		string vertex_name = vertex_oss.str();
 
-		last = start = findVertex(new_polyhedron, strdup(vertex_name.c_str()));
+		last = start = findVertex(new_polyhedron, bodyVertices[(3 * i)]);
+		//last = start = findVertex(new_polyhedron, _strdup(vertex_name.c_str()));
 
 		for (int j = 1; j <= 3; j++)
 		{
 			if (j < 3)
 			{
-				vertex_oss << "v" << ((3 * i) + j);
-				vertex_name = vertex_oss.str();
-				v = findVertex(new_polyhedron, strdup(vertex_name.c_str()));
+				//vertex_oss << "v" << ((3 * i) + j);
+				//vertex_name = vertex_oss.str();
+				//v = findVertex(new_polyhedron, _strdup(vertex_name.c_str()));
+				v = findVertex(new_polyhedron, bodyVertices[(3 * i) + j]);
 			}
 			else
 			{
@@ -948,9 +964,7 @@ polyhedron *createPolyhedron(char *name, vector<vec4> bodyVertices, mat4 *transf
 		f->plane = vec4(f_plane.v[0], f_plane.v[1], f_plane.v[2], f->plane.v[3]);
 		f->plane.v[3] = -1 * dot(f->plane, f->verts->f.v->coords);
 	}
-
-	//Check which of these I need to do
-
+	
 	// Clean up lists 
 	for (fn = new_polyhedron->verts; fn; fn = fn->next) reverseFlist(&fn->f.v->edges);
 
@@ -959,9 +973,9 @@ polyhedron *createPolyhedron(char *name, vector<vec4> bodyVertices, mat4 *transf
 		reverseFlist(&fn->f.f->edges);
 	}
 
-	//reverseFlist(&new_polyhedron->verts);
-	//reverseFlist(&new_polyhedron->edges);
-	//reverseFlist(&new_polyhedron->faces);
+	reverseFlist(&new_polyhedron->verts);
+	reverseFlist(&new_polyhedron->edges);
+	reverseFlist(&new_polyhedron->faces);
 
 	// Build the voronoi regions for the polyhedron 
 	buildCones(new_polyhedron);

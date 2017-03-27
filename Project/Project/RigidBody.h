@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "Antons_maths_funcs.h"
+#include "ClosestFeatures2.h"
 #include "Distance.h"
 #include "Mesh.h"
 
@@ -62,6 +63,8 @@ public:
 	vector<vec4> worldVertices;
 
 	Mesh rigidBodyMesh;
+
+	polyhedron *poly;
 
 	// Bounding Sphere Variables
 	Mesh boundingSphere;
@@ -128,6 +131,8 @@ RigidBody::RigidBody()
 	this->meshColour = vec4(0.0f, 0.0f, 0.0f, 0.0f);
 
 	updateTransformation();
+
+	poly = createPolyhedron("Polyhedron", bodyVertices, &transformationMatrix);
 }
 
 RigidBody::RigidBody(Mesh rigidBodyMesh, GLfloat scaleFactor = 1.0f)
@@ -193,6 +198,8 @@ RigidBody::RigidBody(Mesh rigidBodyMesh, GLfloat scaleFactor = 1.0f)
 	this->bodyCentroid = getCentroid();
 
 	updateTransformation();
+
+	poly = createPolyhedron("Polyhedron", bodyVertices, &transformationMatrix);
 }
 
 RigidBody::RigidBody(int vertex_count, vector<float> vertex_positions)
@@ -251,6 +258,8 @@ RigidBody::RigidBody(int vertex_count, vector<float> vertex_positions)
 	this->bodyCentroid = getCentroid();
 
 	updateTransformation();
+
+	poly = createPolyhedron("Polyhedron", bodyVertices, &transformationMatrix);
 }
 
 RigidBody::~RigidBody()

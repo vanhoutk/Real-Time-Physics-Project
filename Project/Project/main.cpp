@@ -19,7 +19,6 @@
 
 #include "Antons_maths_funcs.h" // Anton's maths functions
 #include "Camera.h"
-#include "ClosestFeatures2.h"
 #include "Distance.h"
 #include "Mesh.h"
 #include "Model.h"
