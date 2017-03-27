@@ -191,7 +191,7 @@ typedef struct face FACE;
 struct polyhedron 
 {
 	char name[20];		// Name of the polyhedron, if any
-	struct mat4 *pose;			// Transformation of the polyhedron
+	struct mat4 pose;			// Transformation of the polyhedron
 	struct featureNode *verts; // List of vertices of the polyhedron
 	struct featureNode *edges; // List of edges of the polyhedron
 	struct featureNode *faces; // List of faces of the polyhedron
@@ -243,7 +243,6 @@ typedef struct planeNode PNODE;
 #define allocFnode (featureNode *) malloc(sizeof(featureNode))
 #define allocPnode (planeNode *) malloc(sizeof(planeNode))
 
-#pragma region NOT_USED
 /*
  * Transformation Macros
  *
@@ -260,8 +259,8 @@ typedef struct planeNode PNODE;
  * Set the pose matrix of polyhedron p
  */
 
-// #define setPose(p, T) mat4copy(T, (p)->pose)
-#pragma endregion
+#define setPose(p, T) (p)->pose = T
+
 
 #pragma region XFORM_FUNCTIONS
 void xformPoint(mat4 M, vec3 p, vec3 &result)
@@ -377,7 +376,7 @@ edge *newEdge(vertex *v1, vertex *v2);
 
 //int loadPolyhedronLibrary();
 //polyhedron *createPolyhedron();
-polyhedron *createPolyhedron(char *name, vector<vec4> bodyVertices, mat4 *transformation);
+polyhedron createPolyhedron(char *name, vector<vec4> bodyVertices, mat4 transformation);
 void dumpPolyhedron(polyhedron *p);
 
 void addPlane(planeNode *pn, planeNode **cone);
@@ -860,7 +859,7 @@ edge *newEdge(vertex *v1, vertex *v2)
 	return newP;
 }*/
 
-polyhedron *createPolyhedron(char *name, vector<vec4> bodyVertices, mat4 *transformation)
+polyhedron createPolyhedron(char *name, vector<vec4> bodyVertices, mat4 transformation)
 {
 	polyhedron *new_polyhedron;
 	vertex *v;
@@ -980,7 +979,7 @@ polyhedron *createPolyhedron(char *name, vector<vec4> bodyVertices, mat4 *transf
 	// Build the voronoi regions for the polyhedron 
 	buildCones(new_polyhedron);
 
-	return new_polyhedron;
+	return *new_polyhedron;
 }
 
 /*
@@ -2671,8 +2670,8 @@ float closestFeatures(polyhedron *poly1, void **feat1, polyhedron *poly2, void *
 	int cycleChk;
 
 	// Compute transformation matrices between the two polyhedron frames
-	matInvXform(*poly2->pose, inv);
-	matMultXform(inv, *poly1->pose, T12);
+	matInvXform(poly2->pose, inv);
+	matMultXform(inv, poly1->pose, T12);
 	matInvXform(T12, T21);
 
 	cycleChk = 0;

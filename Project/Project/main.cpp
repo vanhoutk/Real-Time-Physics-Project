@@ -40,7 +40,7 @@ bool firstMouse = true;
 bool keys[1024];
 bool pause = false;
 Camera camera(vec3(0.0f, 0.0f, 4.0f));
-const GLuint numRigidBodies = 1;
+const GLuint numRigidBodies = 2;
 enum Meshes { PLANE_MESH, D6_MESH, SPHERE_MESH, D4_MESH, D8_MESH, D10_MESH, D12_MESH, D20_MESH};
 enum Shaders { SKYBOX, BASIC_COLOUR_SHADER, BASIC_TEXTURE_SHADER, LIGHT_SHADER, LIGHT_TEXTURE_SHADER };
 enum Textures { PLANE_TEXTURE, D4_TEXTURE, D6_TEXTURE, D8_TEXTURE, D10_TEXTURE, D12_TEXTURE, D20_TEXTURE};
@@ -165,6 +165,19 @@ void processInput()
 		pause = true;
 	if (keys['o'])
 		pause = false;
+
+	if (keys['u'])
+		rigidbodies[0].position.v[1] += 0.001f;
+	if (keys['j'])
+		rigidbodies[0].position.v[1] -= 0.001f;
+	if (keys['y'])
+		rigidbodies[0].position.v[2] += 0.001f;
+	if (keys['i'])
+		rigidbodies[0].position.v[2] -= 0.001f;
+	if (keys['h'])
+		rigidbodies[0].position.v[0] += 0.001f;
+	if (keys['k'])
+		rigidbodies[0].position.v[0] -= 0.001f;
 
 	if (keys[(char)27])
 		exit(0);
@@ -292,6 +305,7 @@ void init()
 	//RigidBody rigidBody = RigidBody(asteroid.vertex_count, asteroid.vertex_positions);
 	RigidBody d4rb = RigidBody(d4, 0.4f);
 	d4rb.addBoundingSphere(sphereMesh, green);
+	rigidbodies.push_back(d4rb);
 	rigidbodies.push_back(d4rb);
 
 	/*RigidBody d6rb = RigidBody(d6, 0.2f);

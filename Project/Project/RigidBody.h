@@ -64,7 +64,7 @@ public:
 
 	Mesh rigidBodyMesh;
 
-	polyhedron *poly;
+	polyhedron poly;
 
 	// Bounding Sphere Variables
 	Mesh boundingSphere;
@@ -132,7 +132,7 @@ RigidBody::RigidBody()
 
 	updateTransformation();
 
-	poly = createPolyhedron("Polyhedron", bodyVertices, &transformationMatrix);
+	poly = createPolyhedron("Polyhedron", bodyVertices, transformationMatrix);
 }
 
 RigidBody::RigidBody(Mesh rigidBodyMesh, GLfloat scaleFactor = 1.0f)
@@ -199,7 +199,7 @@ RigidBody::RigidBody(Mesh rigidBodyMesh, GLfloat scaleFactor = 1.0f)
 
 	updateTransformation();
 
-	poly = createPolyhedron("Polyhedron", bodyVertices, &transformationMatrix);
+	poly = createPolyhedron("Polyhedron", bodyVertices, transformationMatrix);
 }
 
 RigidBody::RigidBody(int vertex_count, vector<float> vertex_positions)
@@ -259,7 +259,7 @@ RigidBody::RigidBody(int vertex_count, vector<float> vertex_positions)
 
 	updateTransformation();
 
-	poly = createPolyhedron("Polyhedron", bodyVertices, &transformationMatrix);
+	poly = createPolyhedron("Polyhedron", bodyVertices, transformationMatrix);
 }
 
 RigidBody::~RigidBody()
@@ -703,7 +703,7 @@ void updateRigidBodies(GLuint mode, GLuint numRigidBodies, vector<RigidBody> &ri
 	{
 		RigidBody &rigidBody = rigidbodies[i];
 
-		computeForcesAndTorque(rigidBody);
+		//computeForcesAndTorque(rigidBody);
 
 		rigidBody.position += rigidBody.velocity * deltaTime;
 
@@ -826,6 +826,9 @@ bool isColliding(const RigidBody& bdi, const RigidBody& cdi)
 
 void checkAABBCollisions(GLuint numRigidBodies, vector<RigidBody> &rigidbodies)
 {
+	void *feature1, *feature2;
+	char name1[20], name2[20];
+
 	vector<bool> m_collision(numRigidBodies, false);
 	for (GLuint i = 0; i < numRigidBodies; i++)
 	{
@@ -835,6 +838,14 @@ void checkAABBCollisions(GLuint numRigidBodies, vector<RigidBody> &rigidbodies)
 			{
 				m_collision[i] = true;
 				m_collision[j] = true;
+
+				rigidbodies[i].poly.pose = rigidbodies[i].transformationMatrix;
+				rigidbodies[j].poly.pose = rigidbodies[j].transformationMatrix;
+				float distance = closestFeaturesInit(&rigidbodies[i].poly, &feature1, &rigidbodies[j].poly, &feature2);
+				featureName(feature1, name1);
+				featureName(feature2, name2);
+				cout << name1 << endl;
+				cout << name2 << endl;
 			}
 		}
 	}
