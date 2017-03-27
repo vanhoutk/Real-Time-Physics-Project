@@ -535,7 +535,7 @@ void featureName(void *feature, char *name)
 	type = featureTag(feature);
 	if (type == V) strcpy_s(name, sizeof(name), ((vertex *)feature)->name);
 	else if (type == F) strcpy_s(name, sizeof(name), ((face *)feature)->name);
-	else sprintf_s(name, sizeof(name), "%s.%s", ((edge *)feature)->v1->name, ((edge *)feature)->v2->name);
+	else sprintf_s(name, 2 * sizeof(name), "%s.%s", ((edge *)feature)->v1->name, ((edge *)feature)->v2->name);
 }
 
 /*
@@ -2668,6 +2668,7 @@ float closestFeatures(polyhedron *poly1, void **feat1, polyhedron *poly2, void *
 	float dist;
 	mat4 T12, T21, inv;
 	int cycleChk;
+	char name1[60], name2[60];
 
 	// Compute transformation matrices between the two polyhedron frames
 	matInvXform(poly2->pose, inv);
@@ -2687,6 +2688,10 @@ float closestFeatures(polyhedron *poly1, void **feat1, polyhedron *poly2, void *
 
 		type1 = featureTag(*feat1);
 		type2 = featureTag(*feat2);
+
+		featureName(*feat1, name1);
+		featureName(*feat2, name2);
+		printf("cycle? : feat1 = %s feat2 = %s\n", name1, name2);
 
 		if (type1 == V)
 		{
