@@ -300,7 +300,26 @@ struct mat3 {
 		m[7] = h;
 		m[8] = i;
 	}
+
+	vec3 operator* (const vec3& rhs) {
+		// 0x + 3y + 6z
+		float x =
+			m[0] * rhs.v[0] +
+			m[3] * rhs.v[1] +
+			m[6] * rhs.v[2];
+		// 1x + 4y + 7z
+		float y = m[1] * rhs.v[0] +
+			m[4] * rhs.v[1] +
+			m[7] * rhs.v[2];
+		// 2x + 5y + 8z
+		float z = m[2] * rhs.v[0] +
+			m[5] * rhs.v[1] +
+			m[8] * rhs.v[2];
+		return vec3(x, y, z);
+	}
+
 	float m[9];
+
 };
 
 /* stored like this:

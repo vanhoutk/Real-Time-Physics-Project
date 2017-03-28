@@ -266,13 +266,41 @@ typedef struct planeNode PNODE;
 void xformPoint(mat4 M, vec3 p, vec3 &result)
 {
 	for (int i = 0; i < 3; i++)
-		result.v[i] = M.m[i * 3] * p.v[0] + M.m[(i * 3) + 1] * p.v[1] + M.m[(i * 3) + 2] * p.v[2] + M.m[(i * 3) + 3];
+		result.v[i] = M.m[i] * p.v[0] + M.m[i + 4] * p.v[1] + M.m[i + 8] * p.v[2] + M.m[i + 12];
+
+	mat3 rotation;
+	rotation.m[0] = M.m[0];
+	rotation.m[1] = M.m[1];
+	rotation.m[2] = M.m[2];
+	rotation.m[3] = M.m[4];
+	rotation.m[4] = M.m[5];
+	rotation.m[5] = M.m[6];
+	rotation.m[6] = M.m[8];
+	rotation.m[7] = M.m[9];
+	rotation.m[8] = M.m[10];
+
+	vec3 position = vec3(M.m[12], M.m[13], M.m[14]);
+
+	vec3 result2 = (rotation * p) + position;
 }
 
 void xformVector(mat4 M, vec3 p, vec3 &result)
 {
 	for (int i = 0; i < 3; i++)
-		result.v[i] = M.m[i * 3] * p.v[0] + M.m[(i * 3) + 1] * p.v[1] + M.m[(i * 3) + 2] * p.v[2];
+		result.v[i] = M.m[i] * p.v[0] + M.m[i + 4] * p.v[1] + M.m[i + 8] * p.v[2];
+
+	mat3 rotation;
+	rotation.m[0] = M.m[0];
+	rotation.m[1] = M.m[1];
+	rotation.m[2] = M.m[2];
+	rotation.m[3] = M.m[4];
+	rotation.m[4] = M.m[5];
+	rotation.m[5] = M.m[6];
+	rotation.m[6] = M.m[8];
+	rotation.m[7] = M.m[9];
+	rotation.m[8] = M.m[10];
+
+	vec3 result2 = (rotation * p);
 }
 
 void xformVertex(mat4 M, vertex *v)
@@ -307,12 +335,12 @@ void matInvXform(mat4 M, mat4 &inv)
 	inv.m[10] = M.m[10];
 
 	// The new displacement vector is given by:  d' = -(R^-1) * d 
-	inv.m[3] = -inv.m[0] * M.m[3] - inv.m[1] * M.m[7] - inv.m[2] * M.m[11];
-	inv.m[7] = -inv.m[4] * M.m[3] - inv.m[5] * M.m[7] - inv.m[6] * M.m[11];
-	inv.m[11] = -inv.m[8] * M.m[3] - inv.m[9] * M.m[7] - inv.m[10] * M.m[11];
+	inv.m[12] = -inv.m[0] * M.m[12] - inv.m[4] * M.m[13] - inv.m[8] * M.m[14];
+	inv.m[13] = -inv.m[1] * M.m[12] - inv.m[5] * M.m[13] - inv.m[9] * M.m[14];
+	inv.m[14] = -inv.m[2] * M.m[12] - inv.m[6] * M.m[13] - inv.m[10] * M.m[14];
 
 	// The rest stays the same
-	inv.m[12] = inv.m[13] = inv.m[14] = 0.0;
+	inv.m[3] = inv.m[7] = inv.m[11] = 0.0;
 	inv.m[15] = 1.0;
 }
 
@@ -325,23 +353,23 @@ void matInvXform(mat4 M, mat4 &inv)
 void matMultXform(mat4 a, mat4 b, mat4 &c)
 {
 	// Rc = Ra Rb
-	c.m[0] = a.m[0] * b.m[0] + a.m[1] * b.m[4] + a.m[2] * b.m[8];
-	c.m[1] = a.m[0] * b.m[1] + a.m[1] * b.m[5] + a.m[2] * b.m[9];
-	c.m[2] = a.m[0] * b.m[2] + a.m[1] * b.m[6] + a.m[2] * b.m[10];
-	c.m[4] = a.m[4] * b.m[0] + a.m[5] * b.m[4] + a.m[6] * b.m[8];
-	c.m[5] = a.m[4] * b.m[1] + a.m[5] * b.m[5] + a.m[6] * b.m[9];
-	c.m[6] = a.m[4] * b.m[2] + a.m[5] * b.m[6] + a.m[6] * b.m[10];
-	c.m[8] = a.m[8] * b.m[0] + a.m[9] * b.m[4] + a.m[10] * b.m[8];
-	c.m[9] = a.m[8] * b.m[1] + a.m[9] * b.m[5] + a.m[10] * b.m[9];
-	c.m[10] = a.m[8] * b.m[2] + a.m[9] * b.m[6] + a.m[10] * b.m[10];
+	c.m[0] = a.m[0] * b.m[0] + a.m[4] * b.m[1] + a.m[8] * b.m[2];
+	c.m[4] = a.m[0] * b.m[4] + a.m[4] * b.m[5] + a.m[8] * b.m[6];
+	c.m[8] = a.m[0] * b.m[8] + a.m[4] * b.m[9] + a.m[8] * b.m[10];
+	c.m[1] = a.m[1] * b.m[0] + a.m[5] * b.m[1] + a.m[9] * b.m[2];
+	c.m[5] = a.m[1] * b.m[4] + a.m[5] * b.m[5] + a.m[9] * b.m[6];
+	c.m[9] = a.m[1] * b.m[8] + a.m[5] * b.m[9] + a.m[9] * b.m[10];
+	c.m[2] = a.m[2] * b.m[0] + a.m[6] * b.m[1] + a.m[10] * b.m[2];
+	c.m[6] = a.m[2] * b.m[4] + a.m[6] * b.m[5] + a.m[10] * b.m[6];
+	c.m[10] = a.m[2] * b.m[8] + a.m[6] * b.m[9] + a.m[10] * b.m[10];
 
 	// Vc = Ra Vb + Va
-	c.m[3] = a.m[0] * b.m[3] + a.m[1] * b.m[7] + a.m[2] * b.m[11] + a.m[3];
-	c.m[7] = a.m[4] * b.m[3] + a.m[5] * b.m[7] + a.m[6] * b.m[11] + a.m[7];
-	c.m[11] = a.m[8] * b.m[3] + a.m[9] * b.m[7] + a.m[10] * b.m[11] + a.m[11];
+	c.m[12] = a.m[0] * b.m[12] + a.m[4] * b.m[13] + a.m[8] * b.m[14] + a.m[12];
+	c.m[13] = a.m[1] * b.m[12] + a.m[5] * b.m[13] + a.m[9] * b.m[14] + a.m[13];
+	c.m[14] = a.m[2] * b.m[12] + a.m[6] * b.m[13] + a.m[10] * b.m[14] + a.m[14];
 
 	// The rest
-	c.m[12] = c.m[13] = c.m[14] = 0.0;
+	c.m[3] = c.m[7] = c.m[11] = 0.0;
 	c.m[15] = 1.0;
 }
 #pragma endregion
