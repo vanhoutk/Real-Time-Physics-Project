@@ -36,6 +36,7 @@ using namespace std;
 #define NUM_SHADERS	 5
 #define NUM_TEXTURES 7
 
+bool drawLine;
 bool firstMouse = true;
 bool keys[1024];
 bool pause = false;
@@ -54,11 +55,11 @@ int screenWidth = 1000;
 int screenHeight = 800;
 int stringIDs[5];
 Mesh asteroid, boundingBox, sphereMesh, pyramidMesh, d4, d6, d8, d10, d12, d20;
-Mesh vertexMesh, edgeMesh, faceMesh;
+Mesh edgeMesh, faceMesh, lineMesh, vertexMesh;
+vec4 closestPoints[2];
 vec4 backgroundColours[3] = { vec4(0.0f, 0.0f, 0.0f, 1.0f), vec4(0.1f, 0.0f, 0.0f, 1.0f), vec4(0.2f, 0.0f, 0.0f, 1.0f) };
 vec4 featureColours[2] = { vec4(1.0f, 1.0f, 0.0f, 1.0f), vec4(0.0f, 1.0f, 1.0f, 1.0f) };
 vector<RigidBody> rigidbodies;
-void *feature1, *feature2;
 void *features[2];
 
 // | Resource Locations
@@ -125,12 +126,16 @@ void init_text()
 
 void drawClosestFeatures(mat4 view, mat4 projection)
 {
+	drawLine = false;
+
 	for (int i = 0; i < 2; i++)
 	{
 		int featureType = featureTag(features[i]);
 
 		if (featureType == V)
 		{
+			drawLine = true;
+
 			vec4 p1 = vec4(((vertex *)features[i])->coords, 0.0f);
 			p1 = (rigidbodies[i].rotation * p1) + rigidbodies[i].position;
 			GLfloat vertex_array[] = {
@@ -184,6 +189,81 @@ void drawClosestFeatures(mat4 view, mat4 projection)
 			//face_model = scale(face_model, vec3(1.005f, 1.005f, 1.005f));
 			faceMesh.drawMesh(view, projection, face_model, featureColours[i]);
 		}
+	}
+
+	if (drawLine)
+	{
+		int featureType[2];
+		featureType[0] = featureTag(features[0]);
+		featureType[1] = featureTag(features[1]);
+
+		if (featureType[0] == V)
+		{
+			closestPoints[0] = vec4(((vertex *)features[0])->coords, 0.0f);
+			closestPoints[0] = (rigidbodies[0].rotation * closestPoints[0]) + rigidbodies[0].position;
+
+			if (featureType[1] == V)
+			{
+				closestPoints[1] = vec4(((vertex *)features[0])->coords, 0.0f);;
+				closestPoints[1] = (rigidbodies[1].rotation * closestPoints[1]) + rigidbodies[1].position;
+			}
+			else if (featureType[1] == E)
+			{
+				vec4 p1 = vec4(((edge *)features[1])->v1->coords, 0.0f);
+				p1 = (rigidbodies[1].rotation * p1) + rigidbodies[1].position;
+				vec4 p2 = vec4(((edge *)features[1])->v2->coords, 0.0f);
+				p2 = (rigidbodies[1].rotation * p2) + rigidbodies[1].position;
+				closestPoints[1] = closestPointOnEdgeVoronoi(closestPoints[0], p1, p2);
+			}
+			else if (featureType[1] == F)
+			{
+				vec4 p1 = vec4(((face *)features[1])->verts->f.v->coords, 0.0f);
+				p1 = (rigidbodies[1].rotation * p1) + rigidbodies[1].position;
+				vec4 p2 = vec4(((face *)features[1])->verts->next->f.v->coords, 0.0f);
+				p2 = (rigidbodies[1].rotation * p2) + rigidbodies[1].position;
+				vec4 p3 = vec4(((face *)features[1])->verts->next->next->f.v->coords, 0.0f);
+				p3 = (rigidbodies[1].rotation * p3) + rigidbodies[1].position;
+
+				closestPoints[1] = closestPointOnTriangleVoronoi(closestPoints[0], p1, p2, p3);
+			}
+		}
+		else
+		{
+			closestPoints[1] = vec4(((vertex *)features[1])->coords, 0.0f);
+			closestPoints[1] = (rigidbodies[1].rotation * closestPoints[1]) + rigidbodies[1].position;
+
+			if (featureType[0] == E)
+			{
+				vec4 p1 = vec4(((edge *)features[0])->v1->coords, 0.0f);
+				p1 = (rigidbodies[0].rotation * p1) + rigidbodies[0].position;
+				vec4 p2 = vec4(((edge *)features[0])->v2->coords, 0.0f);
+				p2 = (rigidbodies[0].rotation * p2) + rigidbodies[0].position;
+				closestPoints[0] = closestPointOnEdgeVoronoi(closestPoints[1], p1, p2);
+			}
+			else if (featureType[0] == F)
+			{
+				vec4 p1 = vec4(((face *)features[0])->verts->f.v->coords, 0.0f);
+				p1 = (rigidbodies[0].rotation * p1) + rigidbodies[0].position;
+				vec4 p2 = vec4(((face *)features[0])->verts->next->f.v->coords, 0.0f);
+				p2 = (rigidbodies[0].rotation * p2) + rigidbodies[0].position;
+				vec4 p3 = vec4(((face *)features[0])->verts->next->next->f.v->coords, 0.0f);
+				p3 = (rigidbodies[0].rotation * p3) + rigidbodies[0].position;
+
+				closestPoints[0] = closestPointOnTriangleVoronoi(closestPoints[1], p1, p2, p3);
+			}
+		}
+
+		GLfloat line_vertices[] = {
+			closestPoints[0].v[0], closestPoints[0].v[1], closestPoints[0].v[2],
+			closestPoints[1].v[0], closestPoints[1].v[1], closestPoints[1].v[2]
+		};
+
+		lineMesh = Mesh(&shaderProgramID[BASIC_COLOUR_SHADER]);
+		lineMesh.generateObjectBufferMesh(line_vertices, 2);
+
+		mat4 line_model = identity_mat4();
+		vec4 line_colour = vec4(1.0f, 1.0f, 1.0f, 1.0f);
+		lineMesh.drawLine(view, projection, line_model, line_colour);
 	}
 }
 
