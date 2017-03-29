@@ -95,6 +95,7 @@ public:
 	void drawMesh(mat4 view, mat4 projection, vec4 viewPosition);
 	void drawBoundingSphere(mat4 view, mat4 projection);
 	void drawAABB(mat4 view, mat4 projection, GLuint* shaderID);
+	void rotateBodyYAxis(GLfloat rotation);
 	void updateTransformation();
 };
 
@@ -481,6 +482,14 @@ void RigidBody::drawAABB(mat4 view, mat4 projection, GLuint* shaderID)
 	bounding_box.drawLine(view, projection, identity_mat4(), boundingBoxColour);
 
 	bounding_box.dispose();
+}
+
+void RigidBody::rotateBodyYAxis(GLfloat rotation)
+{
+	versor quat = quat_from_axis_rad(rotation, 0.0f, 1.0f, 0.0f);
+	multiplyQuat(this->orientation, quat, this->orientation);
+	this->rotation = quat_to_mat4(this->orientation);
+	updateTransformation();
 }
 
 void RigidBody::updateTransformation()

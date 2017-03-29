@@ -299,7 +299,7 @@ void display()
 			rigidbodies[i].drawAABB(view, projection, &shaderProgramID[BASIC_COLOUR_SHADER]);
 	}
 	
-	boundingBox.drawLine(view, projection, model, vec4(1.0f, 1.0f, 0.0f, 1.0f));
+	//boundingBox.drawLine(view, projection, model, vec4(1.0f, 1.0f, 0.0f, 1.0f));
 
 
 	draw_text();
@@ -362,6 +362,7 @@ void updateScene()
 
 	if (!pause)
 	{
+		rigidbodies[1].rotateBodyYAxis(0.001f);
 		updateRigidBodies(mode, numRigidBodies, rigidbodies);
 
 		if (mode == BOUNDING_SPHERES)
@@ -397,14 +398,17 @@ void updateScene()
 
 void initialiseRigidBodies(bool indices)
 {
+	rigidbodies[0].position = vec4(0.5f, 0.0f, 0.5f, 0.0f);
+	rigidbodies[1].position = vec4(0.0f, 0.0f, 0.0f, 0.0f);
+
 	for (GLuint i = 0; i < numRigidBodies; i++)
 	{
 		RigidBody &rigidBody = rigidbodies[i];
-		GLfloat randomX1 = ((rand() % 8) - 4) / 5.0f;
-		GLfloat randomY1 = ((rand() % 8)) / 10.0f;
-		GLfloat randomZ1 = ((rand() % 8) - 4) / 5.0f;
+		//GLfloat randomX1 = ((rand() % 8) - 4) / 5.0f;
+		//GLfloat randomY1 = ((rand() % 8)) / 10.0f;
+		//GLfloat randomZ1 = ((rand() % 8) - 4) / 5.0f;
 
-		rigidBody.position = vec4(randomX1, randomY1, randomZ1, 0.0f);
+		//rigidBody.position = vec4(randomX1, randomY1, randomZ1, 0.0f);
 
 		GLfloat rand0 = (rand() % 100) / 100.0f;
 		GLfloat rand1 = (rand() % 100) / 100.0f;
