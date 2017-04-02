@@ -9,7 +9,7 @@
 
 #define PI 3.14159265358979
 
-enum Camera_Movement {FORWARD, BACKWARD, LEFT, RIGHT};
+enum Camera_Movement {FORWARD, BACKWARD, LEFT, RIGHT, UP, DOWN};
 
 // Default camera values
 const GLfloat YAW = -90.0f;
@@ -73,6 +73,11 @@ public:
 			this->Position -= this->Right * velocity;
 		if (direction == RIGHT)
 			this->Position += this->Right * velocity;
+		if (direction == UP)
+			this->Position += this->Up * velocity;
+		if (direction == DOWN)
+			this->Position -= this->Up * velocity;
+
 	}
 
 	// Processes input received from a mouse input system. Expects the offset value in both the x and y direction.

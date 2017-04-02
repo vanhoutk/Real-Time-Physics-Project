@@ -28,6 +28,28 @@ GLfloat restitution = 0.6f; //0.996f is a close approximation of perfect elastic
 GLuint useForce = -1;
 vec4 gravity = vec4(0.0f, -9.81f, 0.0f, 0.0f);
 
+const GLuint numRigidBodies = 3;
+
+struct EndPoint {
+	GLuint rigidBodyID;
+	GLfloat value;
+	bool start;
+};
+
+EndPoint xAxisEndpoints[numRigidBodies * 2];
+EndPoint yAxisEndpoints[numRigidBodies * 2];
+EndPoint zAxisEndpoints[numRigidBodies * 2];
+
+bool firstRun = true;
+
+vector<int> xActiveList;
+vector<int> yActiveList;
+vector<int> zActiveList;
+
+int collisionCounts[numRigidBodies][numRigidBodies];
+int collide[numRigidBodies][numRigidBodies][3];
+
+
 #pragma region RIGIDBODY_CLASS
 class RigidBody {
 public:
@@ -513,6 +535,21 @@ void RigidBody::updateTransformation()
 }
 #pragma endregion
 
+struct ActivePair {
+	RigidBody *R1;
+	RigidBody *R2;
+	void* feature1;
+	void* feature2;
+
+	ActivePair(RigidBody *r1, RigidBody *r2)
+	{
+		R1 = r1;
+		R2 = r2;
+		feature1 = NULL;
+		feature2 = NULL;
+	}
+};
+
 // Functions
 float calculateImpulse(RigidBody &rbA, RigidBody &rbB, vec4 contactNormal, vec4 contactPoint, bool &collidingContact);
 float calculatePlaneImpulse(RigidBody &rigidBody, vec4 contactPlaneNormal, vec4 contactPoint, bool &collidingContact);
@@ -520,11 +557,12 @@ void checkPlaneCollisions(RigidBody &rigidBody);
 
 vec4 getTorque(vec4 force, vec4 position, vec4 point);
 void computeForcesAndTorque(RigidBody &rigidBody);
+void sortEndpointArrays(vector<RigidBody> &rigidbodies);
 void updateRigidBodies(GLuint mode, GLuint numRigidBodies, vector<RigidBody> &rigidbodies);
 
 void checkBoundingSphereCollisions(GLuint numRigidBodies, vector<RigidBody> &rigidbodies);
 bool isColliding(const RigidBody& bdi, const RigidBody& cdi);
-void checkAABBCollisions(GLuint numRigidBodies, vector<RigidBody> &rigidbodies);
+vector<ActivePair> checkAABBCollisions(GLuint numRigidBodies, vector<RigidBody> &rigidbodies);
 
 #pragma region COLLISION_RESPONSE
 float calculateImpulse(RigidBody &rbA, RigidBody &rbB, vec4 contactNormal, vec4 contactPoint, bool &collidingContact)
@@ -705,6 +743,100 @@ void computeForcesAndTorque(RigidBody &rigidBody)
 	}
 }
 
+void sortEndpointArrays(vector<RigidBody> &rigidbodies)
+{
+	// Sort the x axis endpoints
+	for (int i = 1; i < numRigidBodies * 2; i++)
+	{
+		EndPoint x = xAxisEndpoints[i];
+		int j = i - 1;
+		while (j >= 0 && xAxisEndpoints[j].value > x.value)
+		{
+
+			if ((x.start) && (!xAxisEndpoints[j].start))
+			{
+				collide[x.rigidBodyID][xAxisEndpoints[j].rigidBodyID][0] = 1;
+				collide[xAxisEndpoints[j].rigidBodyID][x.rigidBodyID][0] = 1;
+			}
+			else if (!x.start &&  xAxisEndpoints[j].start)
+			{
+				collide[x.rigidBodyID][xAxisEndpoints[j].rigidBodyID][0] = 0;
+				collide[xAxisEndpoints[j].rigidBodyID][x.rigidBodyID][0] = 0;
+			}
+
+			xAxisEndpoints[j + 1] = xAxisEndpoints[j];
+			j--;
+		}
+		xAxisEndpoints[j + 1] = x;
+	}
+
+	// Sort the y axis endpoints
+	for (int i = 1; i < numRigidBodies * 2; i++)
+	{
+		EndPoint x = yAxisEndpoints[i];
+		int j = i - 1;
+		while (j >= 0 && yAxisEndpoints[j].value > x.value)
+		{
+			if (x.start && (!yAxisEndpoints[j].start))
+			{
+				collide[x.rigidBodyID][yAxisEndpoints[j].rigidBodyID][1] = 1;
+				collide[yAxisEndpoints[j].rigidBodyID][x.rigidBodyID][1] = 1;
+			}
+			else if ((!x.start) && yAxisEndpoints[j].start)
+			{
+				collide[x.rigidBodyID][yAxisEndpoints[j].rigidBodyID][1] = 0;
+				collide[yAxisEndpoints[j].rigidBodyID][x.rigidBodyID][1] = 0;
+			}
+
+			yAxisEndpoints[j + 1] = yAxisEndpoints[j];
+			j--;
+		}
+		yAxisEndpoints[j + 1] = x;
+	}
+
+	// Sort the z axis endpoints
+	for (int i = 1; i < numRigidBodies * 2; i++)
+	{
+		EndPoint x = zAxisEndpoints[i];
+		int j = i - 1;
+		while (j >= 0 && zAxisEndpoints[j].value > x.value)
+		{
+			if (x.start && !zAxisEndpoints[j].start)
+			{
+				collide[x.rigidBodyID][zAxisEndpoints[j].rigidBodyID][2] = 1;
+				collide[zAxisEndpoints[j].rigidBodyID][x.rigidBodyID][2] = 1;
+			}
+			else if (!x.start &&  zAxisEndpoints[j].start)
+			{
+				collide[x.rigidBodyID][zAxisEndpoints[j].rigidBodyID][2] = 0;
+				collide[zAxisEndpoints[j].rigidBodyID][x.rigidBodyID][2] = 0;
+			}
+
+			zAxisEndpoints[j + 1] = zAxisEndpoints[j];
+			j--;
+		}
+		zAxisEndpoints[j + 1] = x;
+	}
+
+	// Update the indices of the rigidbodies
+	for (int i = 0; i < numRigidBodies * 2; i++)
+	{
+		if (xAxisEndpoints[i].start)
+			rigidbodies[xAxisEndpoints[i].rigidBodyID].xMinI = i;
+		else
+			rigidbodies[xAxisEndpoints[i].rigidBodyID].xMaxI = i;
+
+		if (yAxisEndpoints[i].start)
+			rigidbodies[yAxisEndpoints[i].rigidBodyID].yMinI = i;
+		else
+			rigidbodies[yAxisEndpoints[i].rigidBodyID].yMaxI = i;
+
+		if (zAxisEndpoints[i].start)
+			rigidbodies[zAxisEndpoints[i].rigidBodyID].zMinI = i;
+		else
+			rigidbodies[zAxisEndpoints[i].rigidBodyID].zMaxI = i;
+	}
+}
 
 void updateRigidBodies(GLuint mode, GLuint numRigidBodies, vector<RigidBody> &rigidbodies)
 {
@@ -787,6 +919,13 @@ void updateRigidBodies(GLuint mode, GLuint numRigidBodies, vector<RigidBody> &ri
 				else if (vertex.v[2] > rigidBody.zMax)
 					rigidBody.zMax = vertex.v[2];
 			}
+
+			xAxisEndpoints[rigidBody.xMinI] = EndPoint{ i, rigidBody.xMin, true };
+			xAxisEndpoints[rigidBody.xMaxI] = EndPoint{ i, rigidBody.xMax, false };
+			yAxisEndpoints[rigidBody.yMinI] = EndPoint{ i, rigidBody.yMin, true };
+			yAxisEndpoints[rigidBody.yMaxI] = EndPoint{ i, rigidBody.yMax, false };
+			zAxisEndpoints[rigidBody.zMinI] = EndPoint{ i, rigidBody.zMin, true };
+			zAxisEndpoints[rigidBody.zMaxI] = EndPoint{ i, rigidBody.zMax, false };
 		}
 
 		// Reset the colliding with counter
@@ -794,6 +933,7 @@ void updateRigidBodies(GLuint mode, GLuint numRigidBodies, vector<RigidBody> &ri
 
 		rigidBody.updateTransformation();
 	}
+	sortEndpointArrays(rigidbodies);
 }
 #pragma endregion
 
@@ -833,25 +973,68 @@ bool isColliding(const RigidBody& bdi, const RigidBody& cdi)
 	return true;
 }
 
-void checkAABBCollisions(GLuint numRigidBodies, vector<RigidBody> &rigidbodies)
+vector<ActivePair> checkAABBCollisions(GLuint numRigidBodies, vector<RigidBody> &rigidbodies)
 {
-	vector<bool> m_collision(numRigidBodies, false);
-	for (GLuint i = 0; i < numRigidBodies; i++)
+	vector<ActivePair> active_pairs;
+	if (firstRun)
 	{
-		for (GLuint j = i + 1; j < numRigidBodies; j++)
+		vector<bool> m_collision(numRigidBodies, false);
+		for (GLuint i = 0; i < numRigidBodies; i++)
 		{
-			if (isColliding(rigidbodies[i], rigidbodies[j]))
+			for (GLuint j = i + 1; j < numRigidBodies; j++)
 			{
-				m_collision[i] = true;
-				m_collision[j] = true;
+				if (isColliding(rigidbodies[i], rigidbodies[j]))
+				{
+					m_collision[i] = true;
+					m_collision[j] = true;
+
+					active_pairs.push_back(ActivePair(&rigidbodies[i], &rigidbodies[j]));
+					collide[i][j][0] = 1;
+					collide[i][j][1] = 1;
+					collide[i][j][2] = 1;
+				}
 			}
 		}
+
+		for (GLuint k = 0; k < numRigidBodies; k++)
+		{
+			rigidbodies[k].collisionAABB = m_collision[k];
+			rigidbodies[k].boundingBoxColour = m_collision[k] ? red : green;
+		}
+
+		firstRun = false;
+	}
+	else
+	{
+		for (GLuint i = 0; i < numRigidBodies; i++)
+		{
+			for (GLuint j = i + 1; j < numRigidBodies; j++)
+			{
+
+				if ((collide[i][j][0]) + collide[i][j][1] + collide[i][j][2] == 3)
+				{
+
+					rigidbodies[i].boundingBoxColour = red;
+					rigidbodies[j].boundingBoxColour = red;
+					rigidbodies[i].collisionAABB = true;
+					rigidbodies[j].collisionAABB = true;
+					active_pairs.push_back(ActivePair(&rigidbodies[i], &rigidbodies[j]));
+				}
+
+				//	collisionCounts[i][j] = 0;
+			}
+
+			if (!rigidbodies[i].collisionAABB)
+				rigidbodies[i].boundingBoxColour = green;
+
+			// Reset the collision
+			rigidbodies[i].collisionAABB = false;
+		}
+
+
 	}
 
-	for (GLuint k = 0; k < numRigidBodies; k++)
-	{
-		rigidbodies[k].collisionAABB = m_collision[k];
-		rigidbodies[k].boundingBoxColour = m_collision[k] ? red : green;
-	}
+
+	return active_pairs;
 }
 #pragma endregion

@@ -42,7 +42,6 @@ bool keys[1024];
 bool pause = false;
 Camera camera(vec3(0.0f, 0.0f, 4.0f));
 char name1[20], name2[20];
-const GLuint numRigidBodies = 2;
 enum Meshes { PLANE_MESH, D6_MESH, SPHERE_MESH, D4_MESH, D8_MESH, D10_MESH, D12_MESH, D20_MESH};
 enum Shaders { SKYBOX, BASIC_COLOUR_SHADER, BASIC_TEXTURE_SHADER, LIGHT_SHADER, LIGHT_TEXTURE_SHADER };
 enum Textures { PLANE_TEXTURE, D4_TEXTURE, D6_TEXTURE, D8_TEXTURE, D10_TEXTURE, D12_TEXTURE, D20_TEXTURE};
@@ -59,6 +58,7 @@ Mesh edgeMesh, faceMesh, lineMesh, vertexMesh;
 vec4 closestPoints[2];
 vec4 backgroundColours[3] = { vec4(0.0f, 0.0f, 0.0f, 1.0f), vec4(0.1f, 0.0f, 0.0f, 1.0f), vec4(0.2f, 0.0f, 0.0f, 1.0f) };
 vec4 featureColours[2] = { vec4(1.0f, 1.0f, 0.0f, 1.0f), vec4(0.0f, 1.0f, 1.0f, 1.0f) };
+vector<ActivePair> activePairs;
 vector<RigidBody> rigidbodies;
 void *features[2];
 
@@ -125,6 +125,168 @@ void init_text()
 }
 
 void drawClosestFeatures(mat4 view, mat4 projection)
+{
+	drawLine = false;
+
+	for (unsigned int i = 0; i < activePairs.size(); i++)
+	{
+		for (int j = 0; j < 2; j++)
+		{
+			void* feature;
+			RigidBody rigidbody;
+
+			if (j == 0)
+			{
+				feature = activePairs[i].feature1;
+				rigidbody = *activePairs[i].R1;
+			}
+			else
+			{
+				feature = activePairs[i].feature2;
+				rigidbody = *activePairs[i].R2;
+			}
+
+			int featureType = featureTag(feature);
+
+			if (featureType == V)
+			{
+				drawLine = true;
+
+				vec4 p1 = vec4(((vertex *)feature)->coords, 0.0f);
+				p1 = (rigidbody.rotation * p1) + rigidbody.position;
+				GLfloat vertex_array[] = {
+					p1.v[0], p1.v[1], p1.v[2]
+				};
+				vertexMesh = Mesh(&shaderProgramID[BASIC_COLOUR_SHADER]);
+				vertexMesh.generateObjectBufferMesh(vertex_array, 1);
+
+				mat4 vertex_model = identity_mat4();
+				glPointSize(20.0f);
+				vertexMesh.drawPoint(view, projection, vertex_model, featureColours[j]);
+				glPointSize(1.0f);
+			}
+			else if (featureType == E)
+			{
+				vec4 p1 = vec4(((edge *)feature)->v1->coords, 0.0f);
+				p1 = (rigidbody.rotation * p1) + rigidbody.position;
+				vec4 p2 = vec4(((edge *)feature)->v2->coords, 0.0f);
+				p2 = (rigidbody.rotation * p2) + rigidbody.position;
+
+				GLfloat edge_array[] = {
+					p1.v[0], p1.v[1], p1.v[2],
+					p2.v[0], p2.v[1], p2.v[2]
+				};
+				edgeMesh = Mesh(&shaderProgramID[BASIC_COLOUR_SHADER]);
+				edgeMesh.generateObjectBufferMesh(edge_array, 2);
+
+				mat4 edge_model = identity_mat4();
+				glLineWidth(10.0f);
+				edgeMesh.drawLine(view, projection, edge_model, featureColours[j]);
+				glLineWidth(1.0f);
+			}
+			else if (featureType == F)
+			{
+				vec4 p1 = vec4(((face *)feature)->verts->f.v->coords, 0.0f);
+				p1 = (rigidbody.rotation * p1) + rigidbody.position;
+				vec4 p2 = vec4(((face *)feature)->verts->next->f.v->coords, 0.0f);
+				p2 = (rigidbody.rotation * p2) + rigidbody.position;
+				vec4 p3 = vec4(((face *)feature)->verts->next->next->f.v->coords, 0.0f);
+				p3 = (rigidbody.rotation * p3) + rigidbody.position;
+
+				GLfloat face_array[] = {
+					p1.v[0], p1.v[1], p1.v[2],
+					p2.v[0], p2.v[1], p2.v[2],
+					p3.v[0], p3.v[1], p3.v[2]
+				};
+				faceMesh = Mesh(&shaderProgramID[BASIC_COLOUR_SHADER]);
+				faceMesh.generateObjectBufferMesh(face_array, 3);
+
+				mat4 face_model = identity_mat4();
+				//face_model = scale(face_model, vec3(1.005f, 1.005f, 1.005f));
+				faceMesh.drawMesh(view, projection, face_model, featureColours[j]);
+			}
+		}
+
+		if (drawLine)
+		{
+			int featureType[2];
+			featureType[0] = featureTag(activePairs[i].feature1);
+			featureType[1] = featureTag(activePairs[i].feature2);
+
+			if (featureType[0] == V)
+			{
+				closestPoints[0] = vec4(((vertex *)activePairs[i].feature1)->coords, 0.0f);
+				closestPoints[0] = (activePairs[i].R1->rotation * closestPoints[0]) + activePairs[i].R1->position;
+
+				if (featureType[1] == V)
+				{
+					closestPoints[1] = vec4(((vertex *)activePairs[i].feature2)->coords, 0.0f);;
+					closestPoints[1] = (activePairs[i].R2->rotation * closestPoints[1]) + activePairs[i].R2->position;
+				}
+				else if (featureType[1] == E)
+				{
+					vec4 p1 = vec4(((edge *)activePairs[i].feature2)->v1->coords, 0.0f);
+					p1 = (activePairs[i].R2->rotation * p1) + activePairs[i].R2->position;
+					vec4 p2 = vec4(((edge *)activePairs[i].feature2)->v2->coords, 0.0f);
+					p2 = (activePairs[i].R2->rotation * p2) + activePairs[i].R2->position;
+					closestPoints[1] = closestPointOnEdgeVoronoi(closestPoints[0], p1, p2);
+				}
+				else if (featureType[1] == F)
+				{
+					vec4 p1 = vec4(((face *)activePairs[i].feature2)->verts->f.v->coords, 0.0f);
+					p1 = (activePairs[i].R2->rotation * p1) + activePairs[i].R2->position;
+					vec4 p2 = vec4(((face *)activePairs[i].feature2)->verts->next->f.v->coords, 0.0f);
+					p2 = (activePairs[i].R2->rotation * p2) + activePairs[i].R2->position;
+					vec4 p3 = vec4(((face *)activePairs[i].feature2)->verts->next->next->f.v->coords, 0.0f);
+					p3 = (activePairs[i].R2->rotation * p3) + activePairs[i].R2->position;
+
+					closestPoints[1] = closestPointOnTriangleVoronoi(closestPoints[0], p1, p2, p3);
+				}
+			}
+			else
+			{
+				closestPoints[1] = vec4(((vertex *)activePairs[i].feature2)->coords, 0.0f);
+				closestPoints[1] = (activePairs[i].R2->rotation * closestPoints[1]) + activePairs[i].R2->position;
+
+				if (featureType[0] == E)
+				{
+					vec4 p1 = vec4(((edge *)activePairs[i].feature1)->v1->coords, 0.0f);
+					p1 = (activePairs[i].R1->rotation * p1) + activePairs[i].R1->position;
+					vec4 p2 = vec4(((edge *)activePairs[i].feature1)->v2->coords, 0.0f);
+					p2 = (activePairs[i].R1->rotation * p2) + activePairs[i].R1->position;
+					closestPoints[0] = closestPointOnEdgeVoronoi(closestPoints[1], p1, p2);
+				}
+				else if (featureType[0] == F)
+				{
+					vec4 p1 = vec4(((face *)activePairs[i].feature1)->verts->f.v->coords, 0.0f);
+					p1 = (activePairs[i].R1->rotation * p1) + activePairs[i].R1->position;
+					vec4 p2 = vec4(((face *)activePairs[i].feature1)->verts->next->f.v->coords, 0.0f);
+					p2 = (activePairs[i].R1->rotation * p2) + activePairs[i].R1->position;
+					vec4 p3 = vec4(((face *)activePairs[i].feature1)->verts->next->next->f.v->coords, 0.0f);
+					p3 = (activePairs[i].R1->rotation * p3) + activePairs[i].R1->position;
+
+					closestPoints[0] = closestPointOnTriangleVoronoi(closestPoints[1], p1, p2, p3);
+				}
+			}
+
+			GLfloat line_vertices[] = {
+				closestPoints[0].v[0], closestPoints[0].v[1], closestPoints[0].v[2],
+				closestPoints[1].v[0], closestPoints[1].v[1], closestPoints[1].v[2]
+			};
+
+			lineMesh = Mesh(&shaderProgramID[BASIC_COLOUR_SHADER]);
+			lineMesh.generateObjectBufferMesh(line_vertices, 2);
+
+			mat4 line_model = identity_mat4();
+			vec4 line_colour = vec4(1.0f, 1.0f, 1.0f, 1.0f);
+			lineMesh.drawLine(view, projection, line_model, line_colour);
+		}
+	}
+
+	
+}
+
+/*void drawClosestFeatures(mat4 view, mat4 projection)
 {
 	drawLine = false;
 
@@ -265,7 +427,7 @@ void drawClosestFeatures(mat4 view, mat4 projection)
 		vec4 line_colour = vec4(1.0f, 1.0f, 1.0f, 1.0f);
 		lineMesh.drawLine(view, projection, line_model, line_colour);
 	}
-}
+}*/
 
 void display() 
 {
@@ -280,12 +442,18 @@ void display()
 		glClearColor(backgroundColours[0].v[0], 0.0f, 0.0f, 1.0f);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-	mat4 view = camera.GetViewMatrix();
+	//mat4 view = camera.GetViewMatrix();
+	mat4 view = look_at(camera.Position, vec3(0.0f, 0.0f, 0.0f), vec3(0.0f, 1.0f, 0.0f));
 	mat4 projection = perspective(camera.Zoom, (float)screenWidth / (float)screenHeight, 0.1f, 100.0f);
 	mat4 model = identity_mat4();
 	vec4 view_position = vec4(camera.Position.v[0], camera.Position.v[1], camera.Position.v[2], 0.0f);
 
-	if (rigidbodies[0].collisionAABB)
+	//if (rigidbodies[0].collisionAABB)
+	//{
+	//	drawClosestFeatures(view, projection);
+	//}
+
+	if (activePairs.size() > 0)
 	{
 		drawClosestFeatures(view, projection);
 	}
@@ -323,16 +491,10 @@ void processInput()
 	if (keys['2'])
 		mode = AABB;
 
-	if (keys['5'])
-		useForce = -1;
-	if (keys['6'])
-		useForce = FORCE1;
-	if (keys['7'])
-		useForce = FORCE2;
-	if (keys['8'])
-		useForce = FORCE3;
-	if (keys['9'])
-		useForce = FORCE4;
+	if (keys['q'])
+		camera.ProcessKeyboard(UP, cameraSpeed);
+	if (keys['a'])
+		camera.ProcessKeyboard(DOWN, cameraSpeed);
 
 	if (keys['p'])
 		pause = true;
@@ -369,8 +531,30 @@ void updateScene()
 			checkBoundingSphereCollisions(numRigidBodies, rigidbodies);
 		else if (mode == AABB)
 		{
-			checkAABBCollisions(numRigidBodies, rigidbodies);
-			if (rigidbodies[0].collisionAABB)
+			activePairs = checkAABBCollisions(numRigidBodies, rigidbodies);
+
+			if (activePairs.size() > 0)
+			{
+				for (unsigned int i = 0; i < activePairs.size(); i++)
+				{
+					activePairs[i].R1->poly.pose = activePairs[i].R1->transformationMatrix;
+					activePairs[i].R2->poly.pose = activePairs[i].R2->transformationMatrix;
+					if (activePairs[i].feature1 == NULL || activePairs[i].feature2 == NULL)
+						currentDistance = closestFeaturesInit(&activePairs[i].R1->poly, &activePairs[i].feature1, &activePairs[i].R2->poly, &activePairs[i].feature2);
+					else
+						currentDistance = closestFeatures(&activePairs[i].R1->poly, &activePairs[i].feature1, &activePairs[i].R2->poly, &activePairs[i].feature2);
+					featureName(activePairs[i].feature1, name1);
+					featureName(activePairs[i].feature2, name2);
+				}
+			}
+			else
+			{
+				strcpy_s(name1, sizeof(name1), "NA");
+				strcpy_s(name2, sizeof(name2), "NA");
+				currentDistance = -1.0f;
+			}
+
+			/*if (rigidbodies[0].collisionAABB)
 			{
 				rigidbodies[0].poly.pose = rigidbodies[0].transformationMatrix;
 				rigidbodies[1].poly.pose = rigidbodies[1].transformationMatrix;
@@ -388,7 +572,7 @@ void updateScene()
 				strcpy_s(name1, sizeof(name1), "NA");
 				strcpy_s(name2, sizeof(name2), "NA");
 				currentDistance = -1.0f;
-			}
+			}*/
 		}
 	}
 
@@ -400,6 +584,7 @@ void initialiseRigidBodies(bool indices)
 {
 	rigidbodies[0].position = vec4(0.5f, 0.0f, 0.5f, 0.0f);
 	rigidbodies[1].position = vec4(0.0f, 0.0f, 0.0f, 0.0f);
+	rigidbodies[2].position = vec4(0.0f, 0.75f, 0.0f, 0.0f);
 
 	for (GLuint i = 0; i < numRigidBodies; i++)
 	{
@@ -491,11 +676,11 @@ void init()
 
 	d12 = Mesh(&shaderProgramID[BASIC_TEXTURE_SHADER]);
 	d12.generateObjectBufferMesh(meshFiles[D12_MESH]);
-	d12.loadTexture(textureFiles[D12_TEXTURE]);
+	d12.loadTexture(textureFiles[D12_TEXTURE]);*/
 
 	d20 = Mesh(&shaderProgramID[BASIC_TEXTURE_SHADER]);
 	d20.generateObjectBufferMesh(meshFiles[D20_MESH]);
-	d20.loadTexture(textureFiles[D20_TEXTURE]);*/
+	d20.loadTexture(textureFiles[D20_TEXTURE]);
 
 	sphereMesh = Mesh(&shaderProgramID[BASIC_COLOUR_SHADER]);
 	sphereMesh.generateObjectBufferMesh(meshFiles[SPHERE_MESH]);
@@ -515,11 +700,11 @@ void init()
 
 	/*RigidBody d10rb = RigidBody(d10, 0.5f);
 	d10rb.addBoundingSphere(sphereMesh, green);
-	rigidbodies.push_back(d10rb);
+	rigidbodies.push_back(d10rb);*/
 
 	RigidBody d20rb = RigidBody(d20, 0.4f);
 	d20rb.addBoundingSphere(sphereMesh, green);
-	rigidbodies.push_back(d20rb);*/
+	rigidbodies.push_back(d20rb);
 
 	initialiseRigidBodies(true);
 }
@@ -571,7 +756,7 @@ void processMouse(int x, int y)
 	lastX = x;
 	lastY = y;
 
-	camera.ProcessMouseMovement((GLfloat)xoffset, (GLfloat)yoffset);
+	//camera.ProcessMouseMovement((GLfloat)xoffset, (GLfloat)yoffset);
 }
 
 void mouseWheel(int button, int dir, int x, int y)
